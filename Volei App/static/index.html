@@ -1,0 +1,1230 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Voleizou</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet" />
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css" rel="stylesheet" />
+  <style>
+    :root {
+      --sidebar-w: 220px;
+      --primary: #2563eb;
+      --sidebar-bg: #1e293b;
+      --sidebar-text: #94a3b8;
+      --sidebar-active: #fff;
+    }
+    body { margin: 0; font-family: 'Segoe UI', sans-serif; background: #f1f5f9; }
+
+    /* Sidebar */
+    #sidebar {
+      position: fixed; top: 0; left: 0; bottom: 0;
+      width: var(--sidebar-w); background: var(--sidebar-bg);
+      display: flex; flex-direction: column; z-index: 100;
+    }
+    #sidebar .logo {
+      padding: 16px 20px;
+      border-bottom: 1px solid #334155;
+      display: flex; align-items: center; gap: 10px;
+    }
+    #sidebar .logo img { width: 36px; height: 36px; object-fit: contain; }
+    #sidebar .logo span { font-size: 1.2rem; font-weight: 700; color: #fff; letter-spacing: .5px; }
+    #sidebar nav { flex: 1; padding: 12px 0; }
+    #sidebar nav a {
+      display: flex; align-items: center; gap: 10px;
+      padding: 10px 20px; color: var(--sidebar-text);
+      text-decoration: none; font-size: 0.9rem;
+      border-left: 3px solid transparent;
+      transition: all 0.15s;
+    }
+    #sidebar nav a:hover { color: #fff; background: #334155; }
+    #sidebar nav a.active {
+      color: var(--sidebar-active); border-left-color: var(--primary);
+      background: #334155;
+    }
+    #sidebar nav a i { font-size: 1.1rem; }
+
+    /* Main */
+    #main { margin-left: var(--sidebar-w); padding: 28px; min-height: 100vh; }
+    .page { display: none; }
+    .page.active { display: block; }
+
+    /* Cards */
+    .card { border: none; border-radius: 12px; box-shadow: 0 1px 4px rgba(0,0,0,.08); }
+    .stat-card { border-radius: 12px; padding: 20px; color: #fff; }
+    .stat-card .value { font-size: 1.8rem; font-weight: 700; }
+    .stat-card .label { font-size: 0.85rem; opacity: .85; }
+
+    /* Badges */
+    .badge-mensalista { background: #dbeafe; color: #1d4ed8; }
+    .badge-avulso { background: #fef3c7; color: #92400e; }
+
+    /* Table */
+    .table th { font-size: 0.8rem; text-transform: uppercase; color: #64748b; font-weight: 600; }
+    .table td { vertical-align: middle; }
+
+    /* Month nav */
+    .month-nav { display: flex; align-items: center; gap: 12px; }
+    .month-nav h5 { margin: 0; font-weight: 600; }
+
+    /* Status dots */
+    .dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+    .dot-green { background: #22c55e; }
+    .dot-red { background: #ef4444; }
+    .dot-yellow { background: #f59e0b; }
+  </style>
+</head>
+<body>
+
+<!-- Sidebar -->
+<div id="sidebar">
+  <div class="logo">
+    <img src="/static/logo.png" alt="Voleizou" />
+    <span>Voleizou</span>
+  </div>
+  <nav>
+    <a href="#" class="active" data-page="dashboard"><i class="bi bi-speedometer2"></i> Dashboard</a>
+    <a href="#" data-page="jogadores"><i class="bi bi-people"></i> Jogadores</a>
+    <a href="#" data-page="jogos"><i class="bi bi-calendar-week"></i> Jogos</a>
+    <a href="#" data-page="pagamentos"><i class="bi bi-cash-coin"></i> Pagamentos</a>
+    <a href="#" data-page="saidas"><i class="bi bi-arrow-up-circle"></i> Saídas</a>
+    <a href="#" data-page="pendentes"><i class="bi bi-hourglass-split"></i> Pendentes <span id="badge-pendentes" class="badge bg-danger ms-1 d-none"></span></a>
+  </nav>
+</div>
+
+<!-- Main -->
+<div id="main">
+
+  <!-- ── DASHBOARD ── -->
+  <div id="page-dashboard" class="page active">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+      <div class="month-nav">
+        <button class="btn btn-outline-secondary btn-sm" onclick="mudaMes(-1)"><i class="bi bi-chevron-left"></i></button>
+        <h5 id="dash-titulo">Carregando...</h5>
+        <button class="btn btn-outline-secondary btn-sm" onclick="mudaMes(1)"><i class="bi bi-chevron-right"></i></button>
+      </div>
+      <button class="btn btn-outline-primary btn-sm" onclick="mudaMes(0)">Mês atual</button>
+    </div>
+
+    <!-- Stats -->
+    <div class="row g-3 mb-4">
+      <div class="col-md-4">
+        <div class="stat-card" style="background:linear-gradient(135deg,#2563eb,#1d4ed8)">
+          <div class="label">Entradas</div>
+          <div class="value" id="dash-entradas">R$ 0</div>
+        </div>
+      </div>
+      <div class="col-md-4">
+        <div class="stat-card" style="background:linear-gradient(135deg,#ef4444,#dc2626)">
+          <div class="label">Saídas</div>
+          <div class="value" id="dash-saidas">R$ 0</div>
+        </div>
+      </div>
+      <div class="col-md-4">
+        <div class="stat-card" style="background:linear-gradient(135deg,#059669,#047857)">
+          <div class="label">Saldo</div>
+          <div class="value" id="dash-saldo">R$ 0</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="row g-3">
+      <!-- Mensalistas -->
+      <div class="col-md-6">
+        <div class="card p-3">
+          <h6 class="fw-bold mb-3"><i class="bi bi-person-check text-primary me-2"></i>Mensalistas</h6>
+          <div id="dash-mensalistas"></div>
+        </div>
+      </div>
+      <!-- Avulsos -->
+      <div class="col-md-6">
+        <div class="card p-3">
+          <h6 class="fw-bold mb-3"><i class="bi bi-person-badge text-warning me-2"></i>Avulsos</h6>
+          <div id="dash-avulsos"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── JOGADORES ── -->
+  <div id="page-jogadores" class="page">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+      <h5 class="fw-bold mb-0">Jogadores</h5>
+      <button class="btn btn-primary btn-sm" onclick="abrirModalJogador()">
+        <i class="bi bi-plus-lg me-1"></i>Novo jogador
+      </button>
+    </div>
+    <div class="card">
+      <div class="card-body p-0">
+        <div class="p-3 border-bottom d-flex gap-2">
+          <button class="btn btn-sm btn-outline-secondary active" id="filtro-todos" onclick="filtrarJogadores('todos')">Todos</button>
+          <button class="btn btn-sm btn-outline-secondary" id="filtro-mensalista" onclick="filtrarJogadores('mensalista')">Mensalistas</button>
+          <button class="btn btn-sm btn-outline-secondary" id="filtro-avulso" onclick="filtrarJogadores('avulso')">Avulsos</button>
+        </div>
+        <table class="table table-hover mb-0">
+          <thead><tr>
+            <th class="ps-3">Nome</th>
+            <th>Tipo</th>
+            <th>Telefone</th>
+            <th>Status</th>
+            <th></th>
+          </tr></thead>
+          <tbody id="tabela-jogadores"></tbody>
+        </table>
+        <div class="p-3 border-top text-muted small">
+          <i class="bi bi-info-circle me-1"></i>Link base para pagamento:
+          <span id="link-base" class="fw-bold text-primary">carregando...</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── JOGOS ── -->
+  <div id="page-jogos" class="page">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+      <h5 class="fw-bold mb-0">Jogos</h5>
+      <button class="btn btn-primary btn-sm" onclick="abrirModalJogo()">
+        <i class="bi bi-plus-lg me-1"></i>Novo jogo
+      </button>
+    </div>
+    <div id="lista-jogos"></div>
+  </div>
+
+  <!-- ── PAGAMENTOS ── -->
+  <div id="page-pagamentos" class="page">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+      <h5 class="fw-bold mb-0">Pagamentos</h5>
+      <div class="d-flex gap-2">
+        <label class="btn btn-outline-success btn-sm mb-0" title="Ler comprovante PDF">
+          <i class="bi bi-file-earmark-arrow-up me-1"></i>Comprovante PDF/PNG
+          <input type="file" id="input-comprovante" accept=".pdf,.png,.jpg,.jpeg" style="display:none" onchange="lerComprovante(this)" />
+        </label>
+        <button class="btn btn-primary btn-sm" onclick="abrirModalPagamento()">
+          <i class="bi bi-plus-lg me-1"></i>Registrar pagamento
+        </button>
+      </div>
+    </div>
+    <!-- Alerta de leitura do comprovante -->
+    <div id="alerta-comprovante" class="alert alert-success d-none mb-3">
+      <div class="d-flex justify-content-between align-items-start">
+        <div>
+          <strong><i class="bi bi-check-circle me-1"></i>Comprovante lido!</strong>
+          <div id="alerta-comprovante-dados" class="mt-1 small"></div>
+        </div>
+        <button class="btn btn-sm btn-success" onclick="confirmarComprovante()">Confirmar pagamento</button>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-body p-0">
+        <div class="p-3 border-bottom d-flex gap-2 align-items-center">
+          <select id="filtro-pag-jogador" class="form-select form-select-sm" style="max-width:200px" onchange="carregarPagamentos()">
+            <option value="">Todos os jogadores</option>
+          </select>
+          <select id="filtro-pag-mes" class="form-select form-select-sm" style="max-width:140px" onchange="carregarPagamentos()">
+            <option value="">Todos os meses</option>
+            <option value="1">Janeiro</option><option value="2">Fevereiro</option>
+            <option value="3">Março</option><option value="4">Abril</option>
+            <option value="5">Maio</option><option value="6">Junho</option>
+            <option value="7">Julho</option><option value="8">Agosto</option>
+            <option value="9">Setembro</option><option value="10">Outubro</option>
+            <option value="11">Novembro</option><option value="12">Dezembro</option>
+          </select>
+          <select id="filtro-pag-ano" class="form-select form-select-sm" style="max-width:100px" onchange="carregarPagamentos()">
+            <option value="2026">2026</option>
+            <option value="2027">2027</option>
+          </select>
+        </div>
+        <table class="table table-hover mb-0">
+          <thead><tr>
+            <th class="ps-3">Data</th>
+            <th>Jogador</th>
+            <th>Tipo</th>
+            <th>Referência</th>
+            <th>Valor</th>
+            <th>Obs.</th>
+            <th></th>
+          </tr></thead>
+          <tbody id="tabela-pagamentos"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── SAÍDAS ── -->
+  <div id="page-saidas" class="page">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+      <h5 class="fw-bold mb-0">Saídas</h5>
+      <button class="btn btn-primary btn-sm" onclick="abrirModalSaida()">
+        <i class="bi bi-plus-lg me-1"></i>Registrar saída
+      </button>
+    </div>
+    <div class="card">
+      <div class="card-body p-0">
+        <div class="p-3 border-bottom d-flex gap-2 align-items-center">
+          <select id="filtro-saida-mes" class="form-select form-select-sm" style="max-width:140px" onchange="carregarSaidas()">
+            <option value="">Todos os meses</option>
+            <option value="1">Janeiro</option><option value="2">Fevereiro</option>
+            <option value="3">Março</option><option value="4">Abril</option>
+            <option value="5">Maio</option><option value="6">Junho</option>
+            <option value="7">Julho</option><option value="8">Agosto</option>
+            <option value="9">Setembro</option><option value="10">Outubro</option>
+            <option value="11">Novembro</option><option value="12">Dezembro</option>
+          </select>
+          <select id="filtro-saida-ano" class="form-select form-select-sm" style="max-width:100px" onchange="carregarSaidas()">
+            <option value="2026">2026</option>
+            <option value="2027">2027</option>
+          </select>
+        </div>
+        <table class="table table-hover mb-0">
+          <thead><tr>
+            <th class="ps-3">Data</th>
+            <th>Descrição</th>
+            <th>Categoria</th>
+            <th>Valor</th>
+            <th>Obs.</th>
+            <th></th>
+          </tr></thead>
+          <tbody id="tabela-saidas"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── PENDENTES ── -->
+  <div id="page-pendentes" class="page">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+      <h5 class="fw-bold mb-0">Comprovantes pendentes</h5>
+      <button class="btn btn-outline-secondary btn-sm" onclick="carregarPendentes()"><i class="bi bi-arrow-clockwise"></i></button>
+    </div>
+    <div id="lista-pendentes"></div>
+  </div>
+
+</div><!-- /main -->
+
+<!-- ── MODAIS ── -->
+
+<!-- Modal Jogador -->
+<div class="modal fade" id="modalJogador" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="modalJogadorTitulo">Novo jogador</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="jogador-id" />
+        <div class="mb-3">
+          <label class="form-label">Nome *</label>
+          <input type="text" class="form-control" id="jogador-nome" />
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Tipo *</label>
+          <select class="form-select" id="jogador-tipo">
+            <option value="mensalista">Mensalista</option>
+            <option value="avulso">Avulso</option>
+          </select>
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Telefone</label>
+          <input type="text" class="form-control" id="jogador-telefone" placeholder="(00) 00000-0000" />
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button class="btn btn-primary" onclick="salvarJogador()">Salvar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal Jogo -->
+<div class="modal fade" id="modalJogo" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Novo jogo</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-3">
+          <label class="form-label">Data *</label>
+          <input type="date" class="form-control" id="jogo-data" />
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Observação</label>
+          <input type="text" class="form-control" id="jogo-obs" placeholder="Opcional" />
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button class="btn btn-primary" onclick="salvarJogo()">Salvar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal Avulsos no Jogo -->
+<div class="modal fade" id="modalAvulsos" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="modalAvulsosTitulo">Avulsos</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-3 d-flex gap-2">
+          <select class="form-select" id="avulso-select"></select>
+          <button class="btn btn-primary btn-sm" onclick="adicionarAvulso()"><i class="bi bi-plus-lg"></i></button>
+        </div>
+        <div id="lista-avulsos-jogo"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal Pagamento -->
+<div class="modal fade" id="modalPagamento" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Registrar pagamento</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-3">
+          <label class="form-label">Jogador *</label>
+          <select class="form-select" id="pag-jogador" onchange="onPagJogadorChange()"></select>
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Tipo *</label>
+          <select class="form-select" id="pag-tipo" onchange="onPagTipoChange()">
+            <option value="mensalidade">Mensalidade</option>
+            <option value="avulso">Avulso</option>
+          </select>
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Valor (R$) *</label>
+          <input type="number" class="form-control" id="pag-valor" step="0.01" />
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Data do pagamento *</label>
+          <input type="date" class="form-control" id="pag-data" />
+        </div>
+        <div class="mb-3">
+          <label class="form-label" id="pag-ref-label">Referência (mês)</label>
+          <input type="text" class="form-control" id="pag-referencia" placeholder="Ex: Maio 2026" />
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Observação</label>
+          <input type="text" class="form-control" id="pag-obs" />
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button class="btn btn-primary" onclick="salvarPagamento()">Salvar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal Confirmação Comprovante -->
+<div class="modal fade" id="modalComprovante" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header bg-success text-white">
+        <h5 class="modal-title"><i class="bi bi-file-earmark-check me-2"></i>Comprovante lido</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="alert alert-light border mb-3" id="comp-resumo"></div>
+        <div class="mb-3">
+          <label class="form-label fw-bold">Jogador *</label>
+          <select class="form-select" id="comp-jogador"></select>
+          <div class="form-text" id="comp-jogador-hint"></div>
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Tipo</label>
+          <select class="form-select" id="comp-tipo">
+            <option value="mensalidade">Mensalidade</option>
+            <option value="avulso">Avulso</option>
+          </select>
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Referência</label>
+          <input type="text" class="form-control" id="comp-referencia" />
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Observação</label>
+          <input type="text" class="form-control" id="comp-obs" placeholder="Opcional" />
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button class="btn btn-success" onclick="salvarPagamentoComprovante()">
+          <i class="bi bi-check-lg me-1"></i>Salvar pagamento
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal Saída -->
+<div class="modal fade" id="modalSaida" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Registrar saída</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-3">
+          <label class="form-label">Descrição *</label>
+          <input type="text" class="form-control" id="saida-desc" />
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Valor (R$) *</label>
+          <input type="number" class="form-control" id="saida-valor" step="0.01" />
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Data *</label>
+          <input type="date" class="form-control" id="saida-data" />
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Categoria</label>
+          <select class="form-select" id="saida-cat">
+            <option value="">Selecione</option>
+            <option>Aluguel de quadra</option>
+            <option>Bolas</option>
+            <option>Equipamentos</option>
+            <option>Outros</option>
+          </select>
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Observação</label>
+          <input type="text" class="form-control" id="saida-obs" />
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button class="btn btn-primary" onclick="salvarSaida()">Salvar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+const API = '';
+const MESES = ['','Janeiro','Fevereiro','Março','Abril','Maio','Junho',
+               'Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+
+// ── Estado global ────────────────────────────────────────────────────────────
+let dashMes = new Date().getMonth() + 1;
+let dashAno = new Date().getFullYear();
+let jogoAtualId = null;
+let filtroJogadores = 'todos';
+
+// ── Utilitários ──────────────────────────────────────────────────────────────
+const fmt = v => 'R$ ' + Number(v).toFixed(2).replace('.', ',');
+const fmtDate = s => { const [y,m,d] = s.split('-'); return `${d}/${m}/${y}`; };
+const today = () => new Date().toISOString().split('T')[0];
+
+async function api(method, url, body) {
+  const opts = { method, headers: { 'Content-Type': 'application/json' } };
+  if (body) opts.body = JSON.stringify(body);
+  const res = await fetch(API + url, opts);
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || 'Erro na requisição');
+  }
+  return res.json();
+}
+
+function toast(msg, tipo = 'success') {
+  const el = document.createElement('div');
+  el.className = `alert alert-${tipo} position-fixed bottom-0 end-0 m-3`;
+  el.style.zIndex = 9999;
+  el.textContent = msg;
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 3000);
+}
+
+// ── Navegação ────────────────────────────────────────────────────────────────
+document.querySelectorAll('#sidebar nav a').forEach(link => {
+  link.addEventListener('click', e => {
+    e.preventDefault();
+    const page = link.dataset.page;
+    document.querySelectorAll('#sidebar nav a').forEach(a => a.classList.remove('active'));
+    link.classList.add('active');
+    document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+    document.getElementById('page-' + page).classList.add('active');
+    if (page === 'dashboard') carregarDashboard();
+    if (page === 'jogadores') carregarJogadores();
+    if (page === 'jogos') carregarJogos();
+    if (page === 'pagamentos') { carregarJogadoresSelect(); carregarPagamentos(); }
+    if (page === 'saidas') carregarSaidas();
+    if (page === 'pendentes') carregarPendentes();
+  });
+});
+
+// ── Dashboard ────────────────────────────────────────────────────────────────
+async function carregarDashboard() {
+  try {
+    const d = await api('GET', `/api/dashboard?mes=${dashMes}&ano=${dashAno}`);
+    document.getElementById('dash-titulo').textContent = d.mes_nome;
+    document.getElementById('dash-entradas').textContent = fmt(d.total_entradas);
+    document.getElementById('dash-saidas').textContent = fmt(d.total_saidas);
+    document.getElementById('dash-saldo').textContent = fmt(d.saldo);
+
+    // Mensalistas
+    const mDiv = document.getElementById('dash-mensalistas');
+    let html = '';
+    if (!d.mensalistas_lista || d.mensalistas_lista.length === 0) {
+      html = '<p class="text-muted small">Nenhum mensalista ativo.</p>';
+    } else {
+      d.mensalistas_lista.forEach(m => {
+        if (m.status === 'quitado') {
+          html += `<div class="d-flex justify-content-between align-items-center py-2 border-bottom">
+            <span><span class="dot dot-green me-2"></span>${m.nome}</span>
+            <span class="text-success fw-bold">${fmt(m.valor_pago)} <small class="text-muted">${fmtDate(m.data_pagamento)}</small></span>
+          </div>`;
+        } else if (m.status === 'parcial') {
+          html += `<div class="d-flex justify-content-between align-items-center py-2 border-bottom">
+            <span><span class="dot dot-yellow me-2"></span>${m.nome}</span>
+            <div class="text-end">
+              <span class="badge bg-warning text-dark">Parcial</span>
+              <small class="text-muted d-block">pago ${fmt(m.valor_pago)} · falta <strong class="text-danger">${fmt(m.valor_falta)}</strong></small>
+            </div>
+          </div>`;
+        } else {
+          html += `<div class="d-flex justify-content-between align-items-center py-2 border-bottom">
+            <span><span class="dot dot-red me-2"></span>${m.nome}</span>
+            <span class="badge bg-danger">Em aberto</span>
+          </div>`;
+        }
+      });
+    }
+    const jogosHtml = d.jogos_mes.length > 0
+      ? `<div class="mt-2 pt-2 text-muted small">${d.jogos_mes.length} jogo(s) no mês</div>` : '';
+    mDiv.innerHTML = html + jogosHtml;
+
+    // Avulsos
+    const aDiv = document.getElementById('dash-avulsos');
+    if (d.avulsos_resumo.length === 0) {
+      aDiv.innerHTML = '<p class="text-muted small">Nenhum avulso com movimentação este mês.</p>';
+    } else {
+      aDiv.innerHTML = d.avulsos_resumo.map(a => `
+        <div class="d-flex justify-content-between align-items-center py-2 border-bottom">
+          <div>
+            <span class="dot ${a.pendente > 0 ? 'dot-yellow' : 'dot-green'} me-2"></span>
+            <strong>${a.nome}</strong>
+            <small class="text-muted ms-2">${a.jogos} jogo(s)</small>
+          </div>
+          <div class="text-end">
+            ${a.pendente > 0
+              ? `<span class="text-danger">${fmt(a.pendente)} pendente</span>`
+              : `<span class="text-success">Quitado</span>`}
+            <br><small class="text-muted">Pago: ${fmt(a.valor_pago)}</small>
+          </div>
+        </div>`).join('');
+    }
+  } catch(e) { toast(e.message, 'danger'); }
+}
+
+function mudaMes(delta) {
+  if (delta === 0) {
+    dashMes = new Date().getMonth() + 1;
+    dashAno = new Date().getFullYear();
+  } else {
+    dashMes += delta;
+    if (dashMes > 12) { dashMes = 1; dashAno++; }
+    if (dashMes < 1)  { dashMes = 12; dashAno--; }
+  }
+  carregarDashboard();
+}
+
+// ── Jogadores ────────────────────────────────────────────────────────────────
+let todosJogadores = [];
+
+async function carregarJogadores() {
+  try {
+    todosJogadores = await api('GET', '/api/jogadores');
+    renderJogadores();
+  } catch(e) { toast(e.message, 'danger'); }
+}
+
+function filtrarJogadores(tipo) {
+  filtroJogadores = tipo;
+  document.querySelectorAll('[id^="filtro-"]').forEach(b => b.classList.remove('active'));
+  document.getElementById('filtro-' + tipo).classList.add('active');
+  renderJogadores();
+}
+
+function renderJogadores() {
+  const lista = filtroJogadores === 'todos'
+    ? todosJogadores
+    : todosJogadores.filter(j => j.tipo === filtroJogadores);
+
+  const tbody = document.getElementById('tabela-jogadores');
+  if (lista.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted py-4">Nenhum jogador encontrado.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = lista.map(j => `
+    <tr>
+      <td class="ps-3"><strong>${j.nome}</strong></td>
+      <td><span class="badge ${j.tipo === 'mensalista' ? 'badge-mensalista' : 'badge-avulso'}">${j.tipo}</span></td>
+      <td>${j.telefone || '—'}</td>
+      <td>${j.ativo ? '<span class="badge bg-success">Ativo</span>' : '<span class="badge bg-secondary">Inativo</span>'}</td>
+      <td class="text-end pe-3">
+        <button class="btn btn-sm btn-success me-1" title="Enviar link pelo WhatsApp" onclick="enviarWhatsApp(${j.id},'${j.nome.replace(/'/g,"\\'")}','${j.telefone || ''}')">
+          <i class="bi bi-whatsapp"></i>
+        </button>
+        <button class="btn btn-sm btn-outline-secondary me-1" onclick="editarJogador(${j.id})"><i class="bi bi-pencil"></i></button>
+        ${j.ativo ? `<button class="btn btn-sm btn-outline-danger" onclick="desativarJogador(${j.id},'${j.nome}')"><i class="bi bi-person-dash"></i></button>` : ''}
+      </td>
+    </tr>`).join('');
+}
+
+function abrirModalJogador() {
+  document.getElementById('jogador-id').value = '';
+  document.getElementById('jogador-nome').value = '';
+  document.getElementById('jogador-tipo').value = 'mensalista';
+  document.getElementById('jogador-telefone').value = '';
+  document.getElementById('modalJogadorTitulo').textContent = 'Novo jogador';
+  new bootstrap.Modal('#modalJogador').show();
+}
+
+async function editarJogador(id) {
+  const j = todosJogadores.find(x => x.id === id);
+  if (!j) return;
+  document.getElementById('jogador-id').value = j.id;
+  document.getElementById('jogador-nome').value = j.nome;
+  document.getElementById('jogador-tipo').value = j.tipo;
+  document.getElementById('jogador-telefone').value = j.telefone || '';
+  document.getElementById('modalJogadorTitulo').textContent = 'Editar jogador';
+  new bootstrap.Modal('#modalJogador').show();
+}
+
+async function salvarJogador() {
+  const id = document.getElementById('jogador-id').value;
+  const data = {
+    nome: document.getElementById('jogador-nome').value.trim(),
+    tipo: document.getElementById('jogador-tipo').value,
+    telefone: document.getElementById('jogador-telefone').value.trim() || null,
+  };
+  if (!data.nome) { toast('Nome é obrigatório', 'warning'); return; }
+  try {
+    if (id) {
+      await api('PUT', `/api/jogadores/${id}`, data);
+      toast('Jogador atualizado!');
+    } else {
+      await api('POST', '/api/jogadores', data);
+      toast('Jogador cadastrado!');
+    }
+    bootstrap.Modal.getInstance('#modalJogador').hide();
+    carregarJogadores();
+  } catch(e) { toast(e.message, 'danger'); }
+}
+
+async function desativarJogador(id, nome) {
+  if (!confirm(`Desativar ${nome}?`)) return;
+  try {
+    await api('DELETE', `/api/jogadores/${id}`);
+    toast('Jogador desativado');
+    carregarJogadores();
+  } catch(e) { toast(e.message, 'danger'); }
+}
+
+// ── Jogos ────────────────────────────────────────────────────────────────────
+let todosJogos = [];
+
+async function carregarJogos() {
+  try {
+    todosJogos = await api('GET', '/api/jogos');
+    renderJogos();
+  } catch(e) { toast(e.message, 'danger'); }
+}
+
+function renderJogos() {
+  const div = document.getElementById('lista-jogos');
+  if (todosJogos.length === 0) {
+    div.innerHTML = '<div class="text-center text-muted py-5">Nenhum jogo registrado.</div>';
+    return;
+  }
+  div.innerHTML = todosJogos.map(j => `
+    <div class="card mb-3">
+      <div class="card-body d-flex justify-content-between align-items-center">
+        <div>
+          <h6 class="mb-1 fw-bold"><i class="bi bi-calendar-event me-2 text-primary"></i>${fmtDate(j.data)}</h6>
+          ${j.observacao ? `<small class="text-muted">${j.observacao}</small>` : ''}
+          <div class="mt-1">
+            ${j.avulsos.map(a => `<span class="badge bg-warning text-dark me-1">${a.nome}</span>`).join('')}
+            ${j.avulsos.length === 0 ? '<span class="text-muted small">Nenhum avulso</span>' : ''}
+          </div>
+        </div>
+        <button class="btn btn-sm btn-outline-primary" onclick="abrirAvulsos(${j.id}, '${j.data}')">
+          <i class="bi bi-people me-1"></i>Avulsos (${j.total_avulsos})
+        </button>
+      </div>
+    </div>`).join('');
+}
+
+function abrirModalJogo() {
+  document.getElementById('jogo-data').value = today();
+  document.getElementById('jogo-obs').value = '';
+  new bootstrap.Modal('#modalJogo').show();
+}
+
+async function salvarJogo() {
+  const data = document.getElementById('jogo-data').value;
+  if (!data) { toast('Data é obrigatória', 'warning'); return; }
+  try {
+    await api('POST', '/api/jogos', { data, observacao: document.getElementById('jogo-obs').value || null });
+    toast('Jogo registrado!');
+    bootstrap.Modal.getInstance('#modalJogo').hide();
+    carregarJogos();
+  } catch(e) { toast(e.message, 'danger'); }
+}
+
+async function abrirAvulsos(jogoId, data) {
+  jogoAtualId = jogoId;
+  document.getElementById('modalAvulsosTitulo').textContent = `Avulsos — ${fmtDate(data)}`;
+  // Popula select com avulsos ativos
+  const avulsos = await api('GET', '/api/jogadores?tipo=avulso');
+  const select = document.getElementById('avulso-select');
+  select.innerHTML = avulsos.filter(a => a.ativo).map(a => `<option value="${a.id}">${a.nome}</option>`).join('');
+  await renderAvulsosJogo(jogoId);
+  new bootstrap.Modal('#modalAvulsos').show();
+}
+
+async function renderAvulsosJogo(jogoId) {
+  const jogo = await api('GET', `/api/jogos/${jogoId}`);
+  const div = document.getElementById('lista-avulsos-jogo');
+  if (jogo.avulsos.length === 0) {
+    div.innerHTML = '<p class="text-muted small">Nenhum avulso neste jogo.</p>';
+    return;
+  }
+  div.innerHTML = jogo.avulsos.map(a => `
+    <div class="d-flex justify-content-between align-items-center py-2 border-bottom">
+      <span>${a.nome}</span>
+      <button class="btn btn-sm btn-outline-danger" onclick="removerAvulsoJogo(${jogoId}, ${a.id})">
+        <i class="bi bi-trash"></i>
+      </button>
+    </div>`).join('');
+}
+
+async function adicionarAvulso() {
+  const jogadorId = document.getElementById('avulso-select').value;
+  if (!jogadorId) return;
+  try {
+    await api('POST', `/api/jogos/${jogoAtualId}/participacoes`, { jogador_id: parseInt(jogadorId) });
+    toast('Avulso adicionado!');
+    renderAvulsosJogo(jogoAtualId);
+    carregarJogos();
+  } catch(e) { toast(e.message, 'danger'); }
+}
+
+async function removerAvulsoJogo(jogoId, jogadorId) {
+  if (!confirm('Remover avulso deste jogo?')) return;
+  try {
+    await api('DELETE', `/api/jogos/${jogoId}/participacoes/${jogadorId}`);
+    toast('Removido');
+    renderAvulsosJogo(jogoId);
+    carregarJogos();
+  } catch(e) { toast(e.message, 'danger'); }
+}
+
+// ── Pagamentos ───────────────────────────────────────────────────────────────
+async function carregarJogadoresSelect() {
+  const jogadores = await api('GET', '/api/jogadores');
+  const sel = document.getElementById('filtro-pag-jogador');
+  const curVal = sel.value;
+  sel.innerHTML = '<option value="">Todos os jogadores</option>' +
+    jogadores.map(j => `<option value="${j.id}">${j.nome}</option>`).join('');
+  sel.value = curVal;
+}
+
+async function carregarPagamentos() {
+  const jogId = document.getElementById('filtro-pag-jogador').value;
+  const mes = document.getElementById('filtro-pag-mes').value;
+  const ano = document.getElementById('filtro-pag-ano').value;
+  let url = '/api/pagamentos?';
+  if (jogId) url += `jogador_id=${jogId}&`;
+  if (mes) url += `mes=${mes}&`;
+  if (ano) url += `ano=${ano}&`;
+  try {
+    const pagamentos = await api('GET', url);
+    const tbody = document.getElementById('tabela-pagamentos');
+    if (pagamentos.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted py-4">Nenhum pagamento encontrado.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = pagamentos.map(p => `
+      <tr>
+        <td class="ps-3">${fmtDate(p.data_pagamento)}</td>
+        <td>${p.jogador_nome}</td>
+        <td><span class="badge ${p.tipo === 'mensalidade' ? 'badge-mensalista' : 'badge-avulso'}">${p.tipo}</span></td>
+        <td>${p.referencia || '—'}</td>
+        <td class="fw-bold text-success">${fmt(p.valor)}</td>
+        <td>${p.observacao || '—'}</td>
+        <td class="text-end pe-3">
+          <button class="btn btn-sm btn-outline-danger" onclick="deletarPagamento(${p.id})"><i class="bi bi-trash"></i></button>
+        </td>
+      </tr>`).join('');
+  } catch(e) { toast(e.message, 'danger'); }
+}
+
+async function abrirModalPagamento() {
+  const jogadores = await api('GET', '/api/jogadores');
+  const sel = document.getElementById('pag-jogador');
+  sel.innerHTML = jogadores.filter(j => j.ativo).map(j => `<option value="${j.id}" data-tipo="${j.tipo}">${j.nome} (${j.tipo})</option>`).join('');
+  document.getElementById('pag-data').value = today();
+  document.getElementById('pag-valor').value = '';
+  document.getElementById('pag-obs').value = '';
+  onPagJogadorChange();
+  new bootstrap.Modal('#modalPagamento').show();
+}
+
+function onPagJogadorChange() {
+  const sel = document.getElementById('pag-jogador');
+  const opt = sel.options[sel.selectedIndex];
+  const tipo = opt ? opt.dataset.tipo : '';
+  const tipoPag = document.getElementById('pag-tipo');
+  if (tipo === 'mensalista') {
+    tipoPag.value = 'mensalidade';
+    document.getElementById('pag-valor').value = '120';
+    const mes = MESES[new Date().getMonth() + 1];
+    const ano = new Date().getFullYear();
+    document.getElementById('pag-referencia').value = `${mes} ${ano}`;
+  } else {
+    tipoPag.value = 'avulso';
+    document.getElementById('pag-valor').value = '35';
+    document.getElementById('pag-referencia').value = '';
+  }
+  onPagTipoChange();
+}
+
+function onPagTipoChange() {
+  const tipo = document.getElementById('pag-tipo').value;
+  document.getElementById('pag-ref-label').textContent =
+    tipo === 'mensalidade' ? 'Referência (mês)' : 'Referência (data do jogo)';
+}
+
+async function salvarPagamento() {
+  const jogId = document.getElementById('pag-jogador').value;
+  const valor = parseFloat(document.getElementById('pag-valor').value);
+  const data = document.getElementById('pag-data').value;
+  const tipo = document.getElementById('pag-tipo').value;
+  if (!jogId || !valor || !data) { toast('Preencha os campos obrigatórios', 'warning'); return; }
+  try {
+    await api('POST', '/api/pagamentos', {
+      jogador_id: parseInt(jogId), valor, data_pagamento: data, tipo,
+      referencia: document.getElementById('pag-referencia').value || null,
+      observacao: document.getElementById('pag-obs').value || null,
+    });
+    toast('Pagamento registrado!');
+    bootstrap.Modal.getInstance('#modalPagamento').hide();
+    carregarPagamentos();
+  } catch(e) { toast(e.message, 'danger'); }
+}
+
+async function deletarPagamento(id) {
+  if (!confirm('Excluir este pagamento?')) return;
+  try {
+    await api('DELETE', `/api/pagamentos/${id}`);
+    toast('Pagamento excluído');
+    carregarPagamentos();
+  } catch(e) { toast(e.message, 'danger'); }
+}
+
+// ── Saídas ───────────────────────────────────────────────────────────────────
+async function carregarSaidas() {
+  const mes = document.getElementById('filtro-saida-mes').value;
+  const ano = document.getElementById('filtro-saida-ano').value;
+  let url = '/api/saidas?';
+  if (mes) url += `mes=${mes}&`;
+  if (ano) url += `ano=${ano}&`;
+  try {
+    const saidas = await api('GET', url);
+    const tbody = document.getElementById('tabela-saidas');
+    if (saidas.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted py-4">Nenhuma saída encontrada.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = saidas.map(s => `
+      <tr>
+        <td class="ps-3">${fmtDate(s.data)}</td>
+        <td>${s.descricao}</td>
+        <td>${s.categoria || '—'}</td>
+        <td class="fw-bold text-danger">${fmt(s.valor)}</td>
+        <td>${s.observacao || '—'}</td>
+        <td class="text-end pe-3">
+          <button class="btn btn-sm btn-outline-danger" onclick="deletarSaida(${s.id})"><i class="bi bi-trash"></i></button>
+        </td>
+      </tr>`).join('');
+  } catch(e) { toast(e.message, 'danger'); }
+}
+
+function abrirModalSaida() {
+  document.getElementById('saida-desc').value = '';
+  document.getElementById('saida-valor').value = '';
+  document.getElementById('saida-data').value = today();
+  document.getElementById('saida-cat').value = '';
+  document.getElementById('saida-obs').value = '';
+  new bootstrap.Modal('#modalSaida').show();
+}
+
+async function salvarSaida() {
+  const desc = document.getElementById('saida-desc').value.trim();
+  const valor = parseFloat(document.getElementById('saida-valor').value);
+  const data = document.getElementById('saida-data').value;
+  if (!desc || !valor || !data) { toast('Preencha os campos obrigatórios', 'warning'); return; }
+  try {
+    await api('POST', '/api/saidas', {
+      descricao: desc, valor, data,
+      categoria: document.getElementById('saida-cat').value || null,
+      observacao: document.getElementById('saida-obs').value || null,
+    });
+    toast('Saída registrada!');
+    bootstrap.Modal.getInstance('#modalSaida').hide();
+    carregarSaidas();
+  } catch(e) { toast(e.message, 'danger'); }
+}
+
+async function deletarSaida(id) {
+  if (!confirm('Excluir esta saída?')) return;
+  try {
+    await api('DELETE', `/api/saidas/${id}`);
+    toast('Saída excluída');
+    carregarSaidas();
+  } catch(e) { toast(e.message, 'danger'); }
+}
+
+// ── Comprovante ───────────────────────────────────────────────────────────────
+let dadosComprovante = null;
+
+async function lerComprovante(input) {
+  const file = input.files[0];
+  if (!file) return;
+
+  // Mostra loading
+  const label = input.parentElement;
+  label.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Lendo...';
+  label.classList.add('disabled');
+
+  try {
+    const formData = new FormData();
+    formData.append('file', file);
+    const res = await fetch('/api/comprovante/parse', { method: 'POST', body: formData });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || 'Erro ao ler comprovante');
+    }
+    dadosComprovante = await res.json();
+    abrirModalComprovante();
+  } catch(e) {
+    toast(e.message, 'danger');
+  } finally {
+    label.innerHTML = '<i class="bi bi-file-earmark-arrow-up me-1"></i>Comprovante PDF/PNG<input type="file" id="input-comprovante" accept=".pdf,.png,.jpg,.jpeg" style="display:none" onchange="lerComprovante(this)" />';
+    label.classList.remove('disabled');
+    input.value = '';
+  }
+}
+
+async function abrirModalComprovante() {
+  if (!dadosComprovante) return;
+  const d = dadosComprovante;
+
+  // Resumo dos dados extraídos
+  document.getElementById('comp-resumo').innerHTML = `
+    <div class="row g-2 text-center">
+      <div class="col-4">
+        <div class="text-muted small">Nome no comprovante</div>
+        <strong>${d.nome_comprovante || '—'}</strong>
+      </div>
+      <div class="col-4">
+        <div class="text-muted small">Valor</div>
+        <strong class="text-success">${d.valor ? fmt(d.valor) : '—'}</strong>
+      </div>
+      <div class="col-4">
+        <div class="text-muted small">Data</div>
+        <strong>${d.data_original || '—'}</strong>
+      </div>
+    </div>
+    ${d.banco ? `<div class="text-center mt-2 text-muted small">Banco: ${d.banco}</div>` : ''}
+    ${d.aviso ? `<div class="alert alert-warning mt-2 mb-0 py-1 small">${d.aviso}</div>` : ''}
+  `;
+
+  // Popula select de jogadores
+  const jogadores = await api('GET', '/api/jogadores');
+  const sel = document.getElementById('comp-jogador');
+  sel.innerHTML = '<option value="">— Selecione o jogador —</option>' +
+    jogadores.filter(j => j.ativo).map(j =>
+      `<option value="${j.id}" data-tipo="${j.tipo}">${j.nome} (${j.tipo})</option>`
+    ).join('');
+
+  // Pré-seleciona jogador sugerido
+  if (d.jogador_sugerido) {
+    sel.value = d.jogador_sugerido.id;
+    document.getElementById('comp-jogador-hint').innerHTML =
+      `<span class="text-success"><i class="bi bi-check-circle me-1"></i>Correspondência encontrada: <strong>${d.jogador_sugerido.nome}</strong></span>`;
+  } else {
+    document.getElementById('comp-jogador-hint').innerHTML =
+      `<span class="text-warning"><i class="bi bi-exclamation-circle me-1"></i>Selecione o jogador manualmente</span>`;
+  }
+
+  // Pré-preenche tipo e referência
+  const tipoSel = sel.value ? jogadores.find(j => j.id == sel.value) : null;
+  const tipo = tipoSel?.tipo === 'mensalista' ? 'mensalidade' : 'avulso';
+  document.getElementById('comp-tipo').value = tipo;
+
+  const mesAtual = MESES[new Date().getMonth() + 1];
+  const anoAtual = new Date().getFullYear();
+  document.getElementById('comp-referencia').value =
+    tipo === 'mensalidade' ? `${mesAtual} ${anoAtual}` : (d.data_original?.split(' ')[0] || '');
+  document.getElementById('comp-obs').value = '';
+
+  new bootstrap.Modal('#modalComprovante').show();
+}
+
+async function salvarPagamentoComprovante() {
+  const jogId = document.getElementById('comp-jogador').value;
+  if (!jogId) { toast('Selecione o jogador', 'warning'); return; }
+  if (!dadosComprovante?.valor || !dadosComprovante?.data_iso) {
+    toast('Dados incompletos no comprovante', 'warning'); return;
+  }
+  try {
+    await api('POST', '/api/pagamentos', {
+      jogador_id: parseInt(jogId),
+      valor: dadosComprovante.valor,
+      data_pagamento: dadosComprovante.data_iso,
+      tipo: document.getElementById('comp-tipo').value,
+      referencia: document.getElementById('comp-referencia').value || null,
+      observacao: document.getElementById('comp-obs').value || null,
+    });
+    toast('Pagamento registrado!');
+    bootstrap.Modal.getInstance('#modalComprovante').hide();
+    dadosComprovante = null;
+    carregarPagamentos();
+  } catch(e) { toast(e.message, 'danger'); }
+}
+
+// ── IP local e WhatsApp ───────────────────────────────────────────────────────
+let ipLocal = 'localhost';
+let portaLocal = 8000;
+let hostnameLocal = null; // ex: MacBook-Air-de-Rodrigo.local
+
+async function carregarIP() {
+  try {
+    const d = await api('GET', '/api/config/ip');
+    ipLocal = d.ip;
+    portaLocal = d.porta;
+    hostnameLocal = d.hostname || null;
+    document.getElementById('link-base').textContent = `http://${ipLocal}:${portaLocal}/pagar/ID`;
+  } catch(e) {}
+}
+
+function linkPagamento(jogadorId) {
+  return `http://${ipLocal}:${portaLocal}/pagar/${jogadorId}`;
+}
+
+function linkPagamentoWpp(jogadorId) {
+  // Usa hostname.local + https para o WhatsApp reconhecer como link clicável
+  const host = hostnameLocal || ipLocal;
+  return `https://${host}:${portaLocal}/pagar/${jogadorId}`;
+}
+
+function enviarWhatsApp(jogadorId, nomeJogador, telefone) {
+  const link = linkPagamentoWpp(jogadorId);
+  const mes = MESES[new Date().getMonth() + 1];
+  const ano = new Date().getFullYear();
+  const msg = `Olá ${nomeJogador}! 🏐\n\nSegue o link para enviar seu comprovante de pagamento referente a *${mes} ${ano}*:\n\n${link}\n\nObrigado!`;
+  const tel = telefone ? telefone.replace(/\D/g, '') : '';
+  const url = tel
+    ? `https://wa.me/55${tel}?text=${encodeURIComponent(msg)}`
+    : `https://wa.me/?text=${encodeURIComponent(msg)}`;
+  window.open(url, '_blank');
+}
+
+// ── Pendentes ─────────────────────────────────────────────────────────────────
+async function carregarPendentes() {
+  try {
+    const pendentes = await api('GET', '/api/pendentes');
+
+    // Atualiza badge
+    const badge = document.getElementById('badge-pendentes');
+    if (pendentes.length > 0) {
+      badge.textContent = pendentes.length;
+      badge.classList.remove('d-none');
+    } else {
+      badge.classList.add('d-none');
+    }
+
+    const div = document.getElementById('lista-pendentes');
+    if (pendentes.length === 0) {
+      div.innerHTML = '<div class="text-center text-muted py-5"><i class="bi bi-check-circle fs-1 text-success"></i><p class="mt-2">Nenhum comprovante pendente.</p></div>';
+      return;
+    }
+
+    div.innerHTML = pendentes.map(p => `
+      <div class="card mb-3">
+        <div class="card-body">
+          <div class="d-flex justify-content-between align-items-start">
+            <div>
+              <h6 class="fw-bold mb-1">${p.jogador_nome}</h6>
+              <span class="badge ${p.tipo === 'mensalidade' ? 'badge-mensalista' : 'badge-avulso'} me-2">${p.tipo}</span>
+              <small class="text-muted">${p.referencia}</small>
+            </div>
+            <strong class="text-success fs-5">${fmt(p.valor)}</strong>
+          </div>
+          <div class="mt-2 text-muted small">
+            <i class="bi bi-person me-1"></i>Nome no comprovante: <strong>${p.nome_comprovante || '—'}</strong>
+            &nbsp;·&nbsp;
+            <i class="bi bi-calendar me-1"></i>${fmtDate(p.data_pagamento)}
+            &nbsp;·&nbsp;
+            <i class="bi bi-clock me-1"></i>Enviado ${p.criado_em ? new Date(p.criado_em).toLocaleString('pt-BR') : '—'}
+          </div>
+          ${p.comprovante_url ? `
+          <div class="mt-2">
+            <a href="${p.comprovante_url}" target="_blank" class="btn btn-sm btn-outline-secondary">
+              <i class="bi bi-file-earmark-arrow-down me-1"></i>Ver comprovante
+            </a>
+          </div>` : ''}
+          <div class="mt-3 d-flex gap-2">
+            <button class="btn btn-success btn-sm" onclick="aprovarPendente(${p.id})">
+              <i class="bi bi-check-lg me-1"></i>Aprovar
+            </button>
+            <button class="btn btn-outline-danger btn-sm" onclick="rejeitarPendente(${p.id})">
+              <i class="bi bi-x-lg me-1"></i>Rejeitar
+            </button>
+          </div>
+        </div>
+      </div>`).join('');
+  } catch(e) { toast(e.message, 'danger'); }
+}
+
+async function aprovarPendente(id) {
+  try {
+    await api('POST', `/api/pendentes/${id}/aprovar`);
+    toast('Pagamento aprovado!');
+    carregarPendentes();
+  } catch(e) { toast(e.message, 'danger'); }
+}
+
+async function rejeitarPendente(id) {
+  if (!confirm('Rejeitar e excluir este comprovante?')) return;
+  try {
+    await api('DELETE', `/api/pendentes/${id}/rejeitar`);
+    toast('Comprovante rejeitado', 'warning');
+    carregarPendentes();
+  } catch(e) { toast(e.message, 'danger'); }
+}
+
+// ── Init ─────────────────────────────────────────────────────────────────────
+carregarDashboard();
+carregarIP();
+setInterval(() => carregarPendentes(), 30000); // Verifica pendentes a cada 30s
+</script>
+</body>
+</html>

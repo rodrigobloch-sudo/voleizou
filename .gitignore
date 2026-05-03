@@ -1,0 +1,8 @@
+volei.db
+comprovantes/
+__pycache__/
+*.pyc
+.env
+key.pem
+cert.pem
+static/voleizou.crt

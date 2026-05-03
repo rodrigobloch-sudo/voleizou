@@ -1,0 +1,8 @@
+fastapi
+uvicorn[standard]
+sqlalchemy
+python-multipart
+pdfminer.six
+pytesseract
+Pillow
+psycopg2-binary

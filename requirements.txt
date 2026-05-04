@@ -6,3 +6,4 @@ pdfminer.six
 pytesseract
 Pillow
 psycopg2-binary
+bcrypt

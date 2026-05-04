@@ -8,9 +8,9 @@ from sqlalchemy import extract
 from pydantic import BaseModel
 from typing import Optional, List
 from datetime import date, datetime
-import models, hmac, hashlib
+import models, hmac, hashlib, bcrypt
 from leitor_comprovante import ler_comprovante
-from database import engine, get_db, is_sqlite
+from database import engine, get_db, is_sqlite, SessionLocal
 import os, socket, subprocess
 
 models.Base.metadata.create_all(bind=engine)
@@ -114,6 +114,22 @@ def _migrar():
 
 _migrar()
 
+def _seed_admin():
+    """Cria o usuário admin padrão se a tabela de usuários estiver vazia."""
+    db = SessionLocal()
+    try:
+        if db.query(models.Usuario).count() == 0:
+            senha_hash = bcrypt.hashpw(ADMIN_PASS.encode(), bcrypt.gensalt()).decode()
+            u = models.Usuario(nome="Admin", usuario=ADMIN_USER, senha_hash=senha_hash)
+            db.add(u)
+            db.commit()
+    except Exception:
+        pass
+    finally:
+        db.close()
+
+_seed_admin()
+
 def get_local_ip():
     try:
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -149,8 +165,9 @@ class LoginData(BaseModel):
     senha: str
 
 @app.post("/api/login")
-def login(data: LoginData, response: Response):
-    if data.usuario != ADMIN_USER or data.senha != ADMIN_PASS:
+def login(data: LoginData, response: Response, db: Session = Depends(get_db)):
+    u = db.query(models.Usuario).filter(models.Usuario.usuario == data.usuario).first()
+    if not u or not bcrypt.checkpw(data.senha.encode(), u.senha_hash.encode()):
         raise HTTPException(401, "Usuário ou senha incorretos")
     token = _criar_token(data.usuario)
     response.set_cookie(
@@ -159,9 +176,9 @@ def login(data: LoginData, response: Response):
         httponly=True,
         samesite="lax",
         max_age=30 * 24 * 3600,
-        secure=not is_sqlite,   # Secure=True em produção (HTTPS), False local (HTTP)
+        secure=not is_sqlite,
     )
-    return {"ok": True}
+    return {"ok": True, "nome": u.nome}
 
 @app.post("/api/logout")
 def logout(response: Response):
@@ -176,7 +193,61 @@ def me(request: Request):
     return {"ok": True}
 
 
+# ── Gerenciamento de usuários ─────────────────────────────────────────────────
+
+@app.get("/api/usuarios")
+def listar_usuarios(db: Session = Depends(get_db)):
+    return [
+        {"id": u.id, "nome": u.nome, "usuario": u.usuario,
+         "criado_em": u.criado_em.isoformat() if u.criado_em else None}
+        for u in db.query(models.Usuario).order_by(models.Usuario.nome).all()
+    ]
+
+@app.post("/api/usuarios", status_code=201)
+def criar_usuario(data: UsuarioCreate, db: Session = Depends(get_db)):
+    if db.query(models.Usuario).filter(models.Usuario.usuario == data.usuario).first():
+        raise HTTPException(400, f"Usuário '{data.usuario}' já existe")
+    if len(data.senha) < 4:
+        raise HTTPException(400, "A senha deve ter pelo menos 4 caracteres")
+    senha_hash = bcrypt.hashpw(data.senha.encode(), bcrypt.gensalt()).decode()
+    u = models.Usuario(nome=data.nome, usuario=data.usuario, senha_hash=senha_hash)
+    db.add(u)
+    db.commit()
+    db.refresh(u)
+    return {"id": u.id, "nome": u.nome, "usuario": u.usuario}
+
+@app.put("/api/usuarios/{usuario_id}/senha")
+def alterar_senha(usuario_id: int, data: SenhaUpdate, db: Session = Depends(get_db)):
+    u = db.query(models.Usuario).filter(models.Usuario.id == usuario_id).first()
+    if not u:
+        raise HTTPException(404, "Usuário não encontrado")
+    if len(data.senha_nova) < 4:
+        raise HTTPException(400, "A senha deve ter pelo menos 4 caracteres")
+    u.senha_hash = bcrypt.hashpw(data.senha_nova.encode(), bcrypt.gensalt()).decode()
+    db.commit()
+    return {"ok": True}
+
+@app.delete("/api/usuarios/{usuario_id}")
+def deletar_usuario(usuario_id: int, db: Session = Depends(get_db)):
+    u = db.query(models.Usuario).filter(models.Usuario.id == usuario_id).first()
+    if not u:
+        raise HTTPException(404, "Usuário não encontrado")
+    if db.query(models.Usuario).count() <= 1:
+        raise HTTPException(400, "Não é possível remover o único usuário do sistema")
+    db.delete(u)
+    db.commit()
+    return {"ok": True}
+
+
 # ── Schemas ───────────────────────────────────────────────────────────────────
+
+class UsuarioCreate(BaseModel):
+    nome: str
+    usuario: str
+    senha: str
+
+class SenhaUpdate(BaseModel):
+    senha_nova: str
 
 class JogadorCreate(BaseModel):
     nome: str

@@ -168,6 +168,7 @@
     <a href="#" data-page="saidas"><i class="bi bi-arrow-up-circle"></i> Saídas</a>
     <a href="#" data-page="caixa"><i class="bi bi-safe2"></i> Caixa Geral</a>
     <a href="#" data-page="pendentes"><i class="bi bi-hourglass-split"></i> Pendentes <span id="badge-pendentes" class="badge bg-danger ms-1 d-none"></span></a>
+    <a href="#" data-page="config"><i class="bi bi-gear"></i> Configurações</a>
   </nav>
   <div style="padding: 12px 16px; border-top: 1px solid #334155;">
     <button class="btn btn-sm w-100 text-start" style="color:#94a3b8; background:none; border:none;"
@@ -464,6 +465,26 @@
     <div id="lista-pendentes"></div>
   </div>
 
+  <!-- ── CONFIGURAÇÕES ── -->
+  <div id="page-config" class="page">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+      <h5 class="fw-bold mb-0"><i class="bi bi-people-fill me-2 text-primary"></i>Usuários do sistema</h5>
+      <button class="btn btn-primary btn-sm" onclick="abrirModalNovoUsuario()">
+        <i class="bi bi-plus-lg me-1"></i>Novo usuário
+      </button>
+    </div>
+    <div class="card">
+      <div class="table-responsive">
+        <table class="table table-hover mb-0">
+          <thead><tr>
+            <th>Nome</th><th>Usuário</th><th>Criado em</th><th></th>
+          </tr></thead>
+          <tbody id="config-usuarios-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
 </div><!-- /main -->
 
 <!-- ── MODAIS ── -->
@@ -735,6 +756,68 @@
   </div>
 </div>
 
+<!-- Modal Novo Usuário -->
+<div class="modal fade" id="modalNovoUsuario" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="modalNovoUsuarioTitulo">Novo usuário</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-3">
+          <label class="form-label fw-semibold">Nome completo</label>
+          <input type="text" class="form-control" id="nu-nome" placeholder="Ex: Rodrigo" />
+        </div>
+        <div class="mb-3">
+          <label class="form-label fw-semibold">Nome de usuário (login)</label>
+          <input type="text" class="form-control" id="nu-usuario" placeholder="Ex: rodrigo" autocomplete="off" />
+          <div class="form-text">Sem espaços, usado para entrar no sistema.</div>
+        </div>
+        <div class="mb-3">
+          <label class="form-label fw-semibold">Senha</label>
+          <input type="password" class="form-control" id="nu-senha" autocomplete="new-password" />
+          <div class="form-text">Mínimo 4 caracteres.</div>
+        </div>
+        <div id="nu-erro" class="alert alert-danger d-none py-2 small"></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button type="button" class="btn btn-primary" onclick="salvarNovoUsuario()">
+          <i class="bi bi-check-lg me-1"></i>Criar usuário
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal Alterar Senha -->
+<div class="modal fade" id="modalAlterarSenha" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Alterar senha — <span id="as-nome-usuario"></span></h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="as-id" />
+        <div class="mb-3">
+          <label class="form-label fw-semibold">Nova senha</label>
+          <input type="password" class="form-control" id="as-senha" autocomplete="new-password" />
+          <div class="form-text">Mínimo 4 caracteres.</div>
+        </div>
+        <div id="as-erro" class="alert alert-danger d-none py-2 small"></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button type="button" class="btn btn-primary" onclick="salvarNovaSenha()">
+          <i class="bi bi-key me-1"></i>Salvar senha
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- Modal Cobrança em Massa -->
 <div class="modal fade" id="modalCobranca" tabindex="-1">
   <div class="modal-dialog modal-lg">
@@ -856,6 +939,7 @@ document.querySelectorAll('#sidebar nav a').forEach(link => {
     if (page === 'saidas') carregarSaidas();
     if (page === 'caixa') carregarCaixa();
     if (page === 'pendentes') carregarPendentes();
+    if (page === 'config') carregarUsuarios();
   });
 });
 
@@ -2173,6 +2257,91 @@ function cobrancaAvancar(contou) {
   if (contou) cobrancaEnviados++;
   cobrancaIdx++;
   cobrancaRenderCard();
+}
+
+// ── Configurações — Usuários ──────────────────────────────────────────────────
+async function carregarUsuarios() {
+  try {
+    const res = await fetch('/api/usuarios', {credentials: 'include'});
+    const lista = await res.json();
+    const fmt = d => d ? new Date(d).toLocaleDateString('pt-BR') : '—';
+    document.getElementById('config-usuarios-tbody').innerHTML = lista.map(u => `
+      <tr>
+        <td class="fw-semibold">${u.nome}</td>
+        <td><code>${u.usuario}</code></td>
+        <td class="text-muted small">${fmt(u.criado_em)}</td>
+        <td class="text-end">
+          <button class="btn btn-sm btn-outline-secondary me-1" onclick="abrirAlterarSenha(${u.id}, '${u.nome}')">
+            <i class="bi bi-key"></i> Senha
+          </button>
+          <button class="btn btn-sm btn-outline-danger" onclick="excluirUsuario(${u.id}, '${u.nome}')">
+            <i class="bi bi-trash"></i>
+          </button>
+        </td>
+      </tr>`).join('');
+  } catch(e) { toast('Erro ao carregar usuários', 'danger'); }
+}
+
+function abrirModalNovoUsuario() {
+  document.getElementById('nu-nome').value = '';
+  document.getElementById('nu-usuario').value = '';
+  document.getElementById('nu-senha').value = '';
+  document.getElementById('nu-erro').classList.add('d-none');
+  new bootstrap.Modal(document.getElementById('modalNovoUsuario')).show();
+}
+
+async function salvarNovoUsuario() {
+  const nome    = document.getElementById('nu-nome').value.trim();
+  const usuario = document.getElementById('nu-usuario').value.trim();
+  const senha   = document.getElementById('nu-senha').value;
+  const erro    = document.getElementById('nu-erro');
+  if (!nome || !usuario || !senha) { erro.textContent = 'Preencha todos os campos.'; erro.classList.remove('d-none'); return; }
+  try {
+    const res = await fetch('/api/usuarios', {
+      method: 'POST', credentials: 'include',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({nome, usuario, senha}),
+    });
+    if (!res.ok) { const d = await res.json(); erro.textContent = d.detail; erro.classList.remove('d-none'); return; }
+    bootstrap.Modal.getInstance(document.getElementById('modalNovoUsuario')).hide();
+    toast('Usuário criado!', 'success');
+    carregarUsuarios();
+  } catch(e) { erro.textContent = 'Erro ao criar usuário.'; erro.classList.remove('d-none'); }
+}
+
+function abrirAlterarSenha(id, nome) {
+  document.getElementById('as-id').value = id;
+  document.getElementById('as-nome-usuario').textContent = nome;
+  document.getElementById('as-senha').value = '';
+  document.getElementById('as-erro').classList.add('d-none');
+  new bootstrap.Modal(document.getElementById('modalAlterarSenha')).show();
+}
+
+async function salvarNovaSenha() {
+  const id     = document.getElementById('as-id').value;
+  const senha  = document.getElementById('as-senha').value;
+  const erro   = document.getElementById('as-erro');
+  if (!senha) { erro.textContent = 'Digite a nova senha.'; erro.classList.remove('d-none'); return; }
+  try {
+    const res = await fetch(`/api/usuarios/${id}/senha`, {
+      method: 'PUT', credentials: 'include',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({senha_nova: senha}),
+    });
+    if (!res.ok) { const d = await res.json(); erro.textContent = d.detail; erro.classList.remove('d-none'); return; }
+    bootstrap.Modal.getInstance(document.getElementById('modalAlterarSenha')).hide();
+    toast('Senha alterada!', 'success');
+  } catch(e) { erro.textContent = 'Erro ao alterar senha.'; erro.classList.remove('d-none'); }
+}
+
+async function excluirUsuario(id, nome) {
+  if (!confirm(`Remover o usuário "${nome}"?`)) return;
+  try {
+    const res = await fetch(`/api/usuarios/${id}`, {method: 'DELETE', credentials: 'include'});
+    if (!res.ok) { const d = await res.json(); toast(d.detail, 'danger'); return; }
+    toast('Usuário removido', 'warning');
+    carregarUsuarios();
+  } catch(e) { toast('Erro ao remover usuário', 'danger'); }
 }
 
 // ── Autenticação ─────────────────────────────────────────────────────────────

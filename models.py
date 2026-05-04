@@ -85,3 +85,14 @@ class ArquivoComprovante(Base):
     conteudo      = Column(LargeBinary, nullable=False)
     mimetype      = Column(String, default="application/octet-stream")
     criado_em     = Column(DateTime, server_default=func.now())
+
+
+class Usuario(Base):
+    """Usuários administradores do sistema."""
+    __tablename__ = "usuarios"
+
+    id         = Column(Integer, primary_key=True, index=True)
+    nome       = Column(String, nullable=False)
+    usuario    = Column(String, nullable=False, unique=True)
+    senha_hash = Column(String, nullable=False)
+    criado_em  = Column(DateTime, server_default=func.now())

@@ -698,23 +698,48 @@
       </div>
       <div class="modal-body p-0">
 
-        <!-- Barra de progresso + controles -->
-        <div class="p-3 border-bottom bg-light">
-          <div class="d-flex justify-content-between align-items-center mb-2">
-            <span class="fw-bold" id="cobr-progresso-txt">0 / 0 enviados</span>
-            <div class="d-flex gap-2">
-              <button class="btn btn-sm btn-outline-secondary" onclick="cobrancaFiltrar('pendentes')">Só pendentes</button>
-              <button class="btn btn-sm btn-outline-secondary" onclick="cobrancaFiltrar('todos')">Todos</button>
-            </div>
-          </div>
-          <div class="progress" style="height:8px">
-            <div class="progress-bar bg-success" id="cobr-barra" style="width:0%"></div>
+        <!-- Etapa 1: Escolha do tipo -->
+        <div id="cobr-etapa1" class="p-4">
+          <p class="fw-bold mb-3">O que deseja cobrar?</p>
+          <div class="d-grid gap-3">
+            <button class="btn btn-outline-primary btn-lg text-start p-3" onclick="cobrancaEscolherMensalidade()">
+              <i class="bi bi-calendar-check me-2 text-primary"></i>
+              <strong>Mensalidade do mês</strong>
+              <div class="text-muted small mt-1">Envia para todos os mensalistas com valor em aberto ou parcial</div>
+            </button>
+            <button class="btn btn-outline-warning btn-lg text-start p-3" onclick="cobrancaEscolherJogo()">
+              <i class="bi bi-calendar-event me-2 text-warning"></i>
+              <strong>Jogo ou evento específico</strong>
+              <div class="text-muted small mt-1">Selecione um jogo e envia para todos os participantes com pendência</div>
+            </button>
           </div>
         </div>
 
-        <!-- Card do jogador atual -->
-        <div id="cobr-card" class="p-4">
-          <div class="text-center text-muted py-5">Nenhum jogador para contatar.</div>
+        <!-- Etapa 2: Seleção do jogo -->
+        <div id="cobr-etapa2" class="d-none p-4">
+          <button class="btn btn-sm btn-link text-muted ps-0 mb-3" onclick="cobrancaVoltarEtapa1()">
+            <i class="bi bi-arrow-left me-1"></i>Voltar
+          </button>
+          <p class="fw-bold mb-3">Selecione o jogo ou evento:</p>
+          <div id="cobr-lista-jogos" class="d-grid gap-2"></div>
+        </div>
+
+        <!-- Etapa 3: Fila de envio -->
+        <div id="cobr-etapa3" class="d-none">
+          <div class="p-3 border-bottom bg-light">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+              <div>
+                <span class="fw-bold" id="cobr-progresso-txt">0 / 0 enviados</span>
+                <small class="text-muted ms-2" id="cobr-contexto"></small>
+              </div>
+            </div>
+            <div class="progress" style="height:8px">
+              <div class="progress-bar bg-success" id="cobr-barra" style="width:0%"></div>
+            </div>
+          </div>
+          <div id="cobr-card" class="p-4">
+            <div class="text-center text-muted py-5">Nenhum jogador para contatar.</div>
+          </div>
         </div>
 
       </div>
@@ -1892,108 +1917,162 @@ carregarPendentes = async function() {
 };
 
 // ── Cobrança em massa ─────────────────────────────────────────────────────────
-let cobrancaLista = [];   // jogadores a contatar
-let cobrancaIdx = 0;      // índice atual
-let cobrancaEnviados = 0; // quantos já foram abertos
+let cobrancaLista   = [];
+let cobrancaIdx     = 0;
+let cobrancaEnviados= 0;
+let cobrancaContexto= '';
 
-async function abrirCobrancaMassa() {
-  // Carrega dados frescos de dashboard (mês atual) + todos os jogadores
-  const [dash, jogadores, jogos] = await Promise.all([
-    api('GET', `/api/dashboard?mes=${new Date().getMonth()+1}&ano=${new Date().getFullYear()}`),
-    api('GET', '/api/jogadores'),
-    api('GET', '/api/jogos'),
-  ]);
-
-  // Monta lista de todos com telefone, status e valor devido
-  const lista = [];
-
-  // Mensalistas
-  dash.mensalistas_lista.forEach(m => {
-    if (m.status === 'quitado') return; // já pagou, pula
-    const jog = jogadores.find(j => j.id === m.id);
-    lista.push({
-      id: m.id,
-      nome: m.nome,
-      tipo: 'mensalista',
-      telefone: jog?.telefone || '',
-      status: m.status,
-      valor_devido: m.valor_falta,
-      ref: `${MESES[new Date().getMonth()+1]} ${new Date().getFullYear()}`,
-    });
+function _cobrShow(etapa) {
+  ['cobr-etapa1','cobr-etapa2','cobr-etapa3'].forEach(id => {
+    document.getElementById(id).classList.toggle('d-none', id !== etapa);
   });
+}
 
-  // Avulsos com pendências
-  dash.avulsos_resumo.forEach(a => {
-    if (a.pendente <= 0) return;
-    const jog = jogadores.find(j => j.id === a.id);
-    const ultimo = jogos.length > 0 ? jogos[0].data : null;
-    lista.push({
-      id: a.id,
-      nome: a.nome,
-      tipo: 'avulso',
-      telefone: jog?.telefone || '',
-      status: 'em_aberto',
-      valor_devido: a.pendente,
-      ref: ultimo ? fmtDate(ultimo) : '—',
-    });
-  });
-
-  cobrancaLista = lista;
-  cobrancaIdx = 0;
-  cobrancaEnviados = 0;
-  cobrancaRenderCard();
+function abrirCobrancaMassa() {
+  _cobrShow('cobr-etapa1');
+  document.getElementById('cobr-btn-enviar').style.display = 'none';
+  document.getElementById('cobr-btn-pular').style.display  = 'none';
   new bootstrap.Modal('#modalCobranca').show();
 }
 
-function cobrancaFiltrar(modo) {
-  // Já carregado; apenas reordena/filtra na lista atual
-  if (modo === 'todos') {
-    // Recarrega incluindo todos (mesmo quitados) — rellamada abrirCobrancaMassa com flag
-    abrirCobrancaMassaTodos();
-  } else {
-    abrirCobrancaMassa();
-  }
+// ── Etapa 1 → Mensalidade ────────────────────────────────────────────────────
+async function cobrancaEscolherMensalidade() {
+  const mes = new Date().getMonth() + 1;
+  const ano = new Date().getFullYear();
+  const [dash, jogadores] = await Promise.all([
+    api('GET', `/api/dashboard?mes=${mes}&ano=${ano}`),
+    api('GET', '/api/jogadores'),
+  ]);
+  const refMes = `${MESES[mes]} ${ano}`;
+
+  const lista = [];
+  dash.mensalistas_lista.forEach(m => {
+    if (m.status === 'quitado') return;
+    const jog = jogadores.find(j => j.id === m.id);
+    lista.push({
+      id: m.id, nome: m.nome, tipo: 'mensalista',
+      telefone: jog?.telefone || '',
+      status: m.status,
+      valor_devido: m.valor_falta,
+      ref: refMes,
+    });
+  });
+
+  cobrancaIniciarFila(lista, `Mensalidade — ${refMes}`);
 }
 
-async function abrirCobrancaMassaTodos() {
-  const [jogadores, jogos] = await Promise.all([
+// ── Etapa 1 → Jogo específico ────────────────────────────────────────────────
+async function cobrancaEscolherJogo() {
+  _cobrShow('cobr-etapa2');
+  const jogos = await api('GET', '/api/jogos');
+  // Mostra todos (passados + futuros), ordenados por data desc para facilitar achar o mais recente
+  const sorted = [...jogos].sort((a, b) => b.data.localeCompare(a.data));
+  const div = document.getElementById('cobr-lista-jogos');
+  if (sorted.length === 0) {
+    div.innerHTML = '<p class="text-muted">Nenhum jogo cadastrado.</p>';
+    return;
+  }
+  const hoje = today();
+  div.innerHTML = sorted.map(j => {
+    const isPast   = j.data < hoje;
+    const catColor = j.categoria === 'Liga Semestral/Anual' ? 'danger'
+      : j.categoria === 'Torneios Diversos' ? 'warning'
+      : j.categoria === 'Amistoso' ? 'success' : 'primary';
+    return `<button class="btn btn-outline-secondary text-start p-3 w-100" onclick="cobrancaSelecionarJogo(${j.id})">
+      <div class="d-flex justify-content-between align-items-center">
+        <div>
+          <strong>${fmtDate(j.data)}</strong>
+          ${j.categoria ? `<span class="badge bg-${catColor} ms-2">${j.categoria}</span>` : ''}
+          ${j.observacao ? `<small class="text-muted ms-1">· ${j.observacao}</small>` : ''}
+        </div>
+        <span class="badge ${isPast ? 'bg-secondary' : 'bg-primary'}">${isPast ? 'passado' : 'futuro'}</span>
+      </div>
+    </button>`;
+  }).join('');
+}
+
+function cobrancaVoltarEtapa1() {
+  _cobrShow('cobr-etapa1');
+  document.getElementById('cobr-btn-enviar').style.display = 'none';
+  document.getElementById('cobr-btn-pular').style.display  = 'none';
+}
+
+async function cobrancaSelecionarJogo(jogoId) {
+  const mes = new Date().getMonth() + 1;
+  const ano = new Date().getFullYear();
+  const [jogo, jogadores, dash] = await Promise.all([
+    api('GET', `/api/jogos/${jogoId}`),
     api('GET', '/api/jogadores'),
-    api('GET', '/api/jogos'),
+    api('GET', `/api/dashboard?mes=${mes}&ano=${ano}`),
   ]);
-  const ultimo = jogos.length > 0 ? jogos[0].data : null;
-  cobrancaLista = jogadores.filter(j => j.ativo && j.telefone).map(j => ({
-    id: j.id,
-    nome: j.nome,
-    tipo: j.tipo,
-    telefone: j.telefone,
-    status: 'qualquer',
-    valor_devido: null,
-    ref: j.tipo === 'mensalista'
-      ? `${MESES[new Date().getMonth()+1]} ${new Date().getFullYear()}`
-      : (ultimo ? fmtDate(ultimo) : '—'),
-  }));
-  cobrancaIdx = 0;
+
+  const ausentes    = jogo.mensalistas_ausentes || [];
+  const isSemanal   = (jogo.categoria || '') === 'Jogo Semanal' || !jogo.categoria;
+  const refData     = fmtDate(jogo.data);
+  const lista       = [];
+
+  // Mensalistas presentes no jogo
+  const statusMens = {};
+  dash.mensalistas_lista.forEach(m => { statusMens[m.id] = m.status; });
+
+  jogadores.filter(j => j.ativo && j.tipo === 'mensalista').forEach(j => {
+    if (ausentes.includes(j.id)) return; // ausente neste jogo
+    // Para Jogo Semanal: pula quem já está quitado no mês
+    if (isSemanal && statusMens[j.id] === 'quitado') return;
+    lista.push({
+      id: j.id, nome: j.nome, tipo: 'mensalista',
+      telefone: j.telefone || '',
+      status: statusMens[j.id] || 'em_aberto',
+      valor_devido: isSemanal ? (statusMens[j.id] === 'parcial' ? dash.mensalistas_lista.find(m=>m.id===j.id)?.valor_falta : 120) : null,
+      ref: isSemanal ? `${MESES[mes]} ${ano}` : refData,
+    });
+  });
+
+  // Avulsos registrados no jogo
+  jogo.avulsos.forEach(a => {
+    const jog = jogadores.find(j => j.id === a.id);
+    if (!jog) return;
+    const resumo = dash.avulsos_resumo.find(r => r.id === a.id);
+    lista.push({
+      id: a.id, nome: a.nome, tipo: 'avulso',
+      telefone: jog.telefone || '',
+      status: 'em_aberto',
+      valor_devido: 35,
+      ref: refData,
+    });
+  });
+
+  const label = `${jogo.categoria || 'Jogo'} — ${refData}`;
+  cobrancaIniciarFila(lista, label);
+}
+
+// ── Fila de envio ─────────────────────────────────────────────────────────────
+function cobrancaIniciarFila(lista, contexto) {
+  cobrancaLista    = lista;
+  cobrancaIdx      = 0;
   cobrancaEnviados = 0;
+  cobrancaContexto = contexto;
+  document.getElementById('cobr-contexto').textContent = contexto;
+  _cobrShow('cobr-etapa3');
   cobrancaRenderCard();
 }
 
 function cobrancaRenderCard() {
   const total = cobrancaLista.length;
-  const pct = total > 0 ? Math.round((cobrancaEnviados / total) * 100) : 0;
+  const pct   = total > 0 ? Math.round((cobrancaEnviados / total) * 100) : 0;
   document.getElementById('cobr-progresso-txt').textContent = `${cobrancaEnviados} / ${total} enviados`;
   document.getElementById('cobr-barra').style.width = pct + '%';
 
-  const card = document.getElementById('cobr-card');
-  const btnEnviar = document.getElementById('cobr-btn-enviar');
+  const card     = document.getElementById('cobr-card');
+  const btnEnviar= document.getElementById('cobr-btn-enviar');
   const btnPular = document.getElementById('cobr-btn-pular');
 
   if (total === 0 || cobrancaIdx >= total) {
-    const msg = cobrancaEnviados > 0
+    card.innerHTML = cobrancaEnviados > 0
       ? `<div class="text-center py-5"><i class="bi bi-check-circle-fill text-success" style="font-size:3rem"></i><h5 class="mt-3 fw-bold">Tudo enviado!</h5><p class="text-muted">${cobrancaEnviados} mensagem(ns) enviada(s).</p></div>`
-      : `<div class="text-center text-muted py-5">Nenhum jogador com pendência encontrado.</div>`;
-    card.innerHTML = msg;
+      : `<div class="text-center text-muted py-5"><i class="bi bi-people fs-1 d-block mb-2"></i>Nenhum jogador com pendência encontrado.</div>`;
     btnEnviar.style.display = 'none';
-    btnPular.style.display = 'none';
+    btnPular.style.display  = 'none';
     return;
   }
 
@@ -2002,10 +2081,6 @@ function cobrancaRenderCard() {
     ? `<span class="badge bg-warning text-dark">Parcial</span>`
     : j.status === 'em_aberto'
     ? `<span class="badge bg-danger">Em aberto</span>`
-    : `<span class="badge bg-secondary">—</span>`;
-
-  const valorHtml = j.valor_devido != null
-    ? `<div class="mt-2"><span class="text-danger fw-bold fs-5">${fmt(j.valor_devido)}</span> <span class="text-muted small">em aberto</span></div>`
     : '';
 
   card.innerHTML = `
@@ -2013,47 +2088,37 @@ function cobrancaRenderCard() {
       <div class="rounded-circle bg-primary text-white d-flex align-items-center justify-content-center flex-shrink-0"
         style="width:52px;height:52px;font-size:1.4rem;font-weight:700">${j.nome[0].toUpperCase()}</div>
       <div>
-        <h5 class="mb-0 fw-bold">${j.nome}</h5>
-        <div class="d-flex align-items-center gap-2 mt-1">
-          <span class="badge ${j.tipo === 'mensalista' ? 'badge-mensalista' : 'badge-avulso'}">${j.tipo}</span>
-          ${statusBadge}
-        </div>
-        ${valorHtml}
+        <h5 class="mb-1 fw-bold">${j.nome}</h5>
+        <span class="badge ${j.tipo === 'mensalista' ? 'badge-mensalista' : 'badge-avulso'}">${j.tipo}</span>
+        ${statusBadge}
+        ${j.valor_devido != null ? `<span class="ms-2 text-danger fw-bold">${fmt(j.valor_devido)}</span>` : ''}
       </div>
     </div>
     <div class="alert alert-light border small mb-0">
       <i class="bi bi-phone me-1"></i>${j.telefone ? `<strong>${j.telefone}</strong>` : '<span class="text-warning">Sem telefone cadastrado</span>'}
-      &nbsp;·&nbsp;
-      <i class="bi bi-calendar me-1"></i>Ref: <strong>${j.ref}</strong>
+      &nbsp;·&nbsp;<i class="bi bi-calendar me-1"></i>Ref: <strong>${j.ref}</strong>
     </div>
-    <div class="text-muted small mt-2 text-center">${cobrancaIdx + 1} de ${total}</div>
-  `;
+    <div class="text-muted small mt-2 text-center">${cobrancaIdx + 1} de ${total}</div>`;
 
   btnEnviar.style.display = '';
-  btnEnviar.textContent = '';
-  btnEnviar.innerHTML = `<i class="bi bi-whatsapp me-1"></i>${j.telefone ? 'Abrir WhatsApp e avançar' : 'Pular (sem telefone)'}`;
+  btnEnviar.innerHTML = j.telefone
+    ? `<i class="bi bi-whatsapp me-1"></i>Abrir WhatsApp e avançar`
+    : `<i class="bi bi-skip-forward me-1"></i>Pular (sem telefone)`;
   btnPular.style.display = '';
 }
 
 async function cobrancaEnviar() {
   const j = cobrancaLista[cobrancaIdx];
   if (!j) return;
-
   if (j.telefone) {
-    // Monta mensagem igual ao enviarWhatsApp individual
-    const link = linkPagamento(j.id);
+    const link  = linkPagamento(j.id);
     const volei = String.fromCodePoint(0x1F3D0);
-    let msg;
-    if (j.tipo === 'avulso') {
-      msg = `Olá ${j.nome}! \n\nAqui é da equipe do Voleizou! ${volei}${volei}${volei}${volei}\n\nSegue o link para enviar seu comprovante de pagamento referente ao jogo do dia *${j.ref}*:\n\n${link}\n\nObrigado!`;
-    } else {
-      msg = `Olá ${j.nome}! \n\nAqui é da equipe do Voleizou! ${volei}${volei}${volei}${volei}\n\nSegue o link para enviar seu comprovante de pagamento referente a *${j.ref}*:\n\n${link}\n\nObrigado!`;
-    }
+    const msg   = j.tipo === 'avulso'
+      ? `Olá ${j.nome}! \n\nAqui é da equipe do Voleizou! ${volei}${volei}${volei}${volei}\n\nSegue o link para enviar seu comprovante de pagamento referente ao jogo do dia *${j.ref}*:\n\n${link}\n\nObrigado!`
+      : `Olá ${j.nome}! \n\nAqui é da equipe do Voleizou! ${volei}${volei}${volei}${volei}\n\nSegue o link para enviar seu comprovante de pagamento referente a *${j.ref}*:\n\n${link}\n\nObrigado!`;
     const tel = j.telefone.replace(/\D/g, '');
-    const url = `https://wa.me/55${tel}?text=${encodeURIComponent(msg)}`;
-    window.open(url, '_blank');
+    window.open(`https://wa.me/55${tel}?text=${encodeURIComponent(msg)}`, '_blank');
   }
-
   cobrancaAvancar(true);
 }
 

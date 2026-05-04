@@ -628,6 +628,54 @@ async def parse_comprovante(file: UploadFile = File(...), db: Session = Depends(
     }
 
 
+@app.get("/api/caixa")
+def caixa_geral(db: Session = Depends(get_db)):
+    """Resumo financeiro geral — acumulado de todos os meses."""
+
+    # Todas as entradas aprovadas
+    todos_pagamentos = db.query(models.Pagamento).filter(
+        ~models.Pagamento.observacao.like("PENDENTE|%")
+    ).all()
+    total_entradas = sum(p.valor for p in todos_pagamentos)
+
+    # Todas as saídas
+    todas_saidas = db.query(models.Saida).all()
+    total_saidas = sum(s.valor for s in todas_saidas)
+
+    # Resumo por mês (últimos 12 meses com movimento)
+    from collections import defaultdict
+    por_mes = defaultdict(lambda: {"entradas": 0.0, "saidas": 0.0})
+    for p in todos_pagamentos:
+        chave = f"{p.data_pagamento.year}-{p.data_pagamento.month:02d}"
+        por_mes[chave]["entradas"] += p.valor
+    for s in todas_saidas:
+        chave = f"{s.data.year}-{s.data.month:02d}"
+        por_mes[chave]["saidas"] += s.valor
+
+    MESES_PT = ["", "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
+                "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"]
+
+    historico = []
+    for chave in sorted(por_mes.keys(), reverse=True)[:12]:
+        ano, mes = int(chave.split("-")[0]), int(chave.split("-")[1])
+        e = por_mes[chave]["entradas"]
+        s = por_mes[chave]["saidas"]
+        historico.append({
+            "chave": chave,
+            "mes_nome": f"{MESES_PT[mes]} {ano}",
+            "entradas": e,
+            "saidas": s,
+            "saldo": e - s,
+        })
+
+    return {
+        "total_entradas": total_entradas,
+        "total_saidas": total_saidas,
+        "saldo_caixa": total_entradas - total_saidas,
+        "historico": historico,
+    }
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", host="127.0.0.1", port=8000, reload=True)

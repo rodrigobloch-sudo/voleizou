@@ -88,6 +88,7 @@
     <a href="#" data-page="jogos"><i class="bi bi-calendar-week"></i> Jogos</a>
     <a href="#" data-page="pagamentos"><i class="bi bi-cash-coin"></i> Pagamentos</a>
     <a href="#" data-page="saidas"><i class="bi bi-arrow-up-circle"></i> Saídas</a>
+    <a href="#" data-page="caixa"><i class="bi bi-safe2"></i> Caixa Geral</a>
     <a href="#" data-page="pendentes"><i class="bi bi-hourglass-split"></i> Pendentes <span id="badge-pendentes" class="badge bg-danger ms-1 d-none"></span></a>
   </nav>
 </div>
@@ -285,6 +286,52 @@
             <th></th>
           </tr></thead>
           <tbody id="tabela-saidas"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── CAIXA GERAL ── -->
+  <div id="page-caixa" class="page">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+      <h5 class="fw-bold mb-0">Caixa Geral</h5>
+      <button class="btn btn-outline-secondary btn-sm" onclick="carregarCaixa()"><i class="bi bi-arrow-clockwise"></i></button>
+    </div>
+
+    <!-- Totais -->
+    <div class="row g-3 mb-4">
+      <div class="col-4">
+        <div class="stat-card" style="background:linear-gradient(135deg,#2563eb,#1d4ed8)">
+          <div class="label">Total entradas</div>
+          <div class="value" id="caixa-entradas" style="font-size:1.3rem">—</div>
+        </div>
+      </div>
+      <div class="col-4">
+        <div class="stat-card" style="background:linear-gradient(135deg,#ef4444,#dc2626)">
+          <div class="label">Total saídas</div>
+          <div class="value" id="caixa-saidas" style="font-size:1.3rem">—</div>
+        </div>
+      </div>
+      <div class="col-4">
+        <div class="stat-card" style="background:linear-gradient(135deg,#059669,#047857)">
+          <div class="label">Saldo em caixa</div>
+          <div class="value" id="caixa-saldo" style="font-size:1.3rem">—</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Histórico por mês -->
+    <div class="card">
+      <div class="card-body p-0">
+        <h6 class="fw-bold p-3 mb-0 border-bottom">Histórico mensal</h6>
+        <table class="table table-hover mb-0">
+          <thead><tr>
+            <th class="ps-3">Mês</th>
+            <th>Entradas</th>
+            <th>Saídas</th>
+            <th>Saldo</th>
+          </tr></thead>
+          <tbody id="tabela-caixa"></tbody>
         </table>
       </div>
     </div>
@@ -563,6 +610,7 @@ document.querySelectorAll('#sidebar nav a').forEach(link => {
     if (page === 'jogos') carregarJogos();
     if (page === 'pagamentos') { carregarJogadoresSelect(); carregarPagamentos(); }
     if (page === 'saidas') carregarSaidas();
+    if (page === 'caixa') carregarCaixa();
     if (page === 'pendentes') carregarPendentes();
   });
 });
@@ -1136,6 +1184,29 @@ function enviarWhatsApp(jogadorId, nomeJogador, telefone) {
     ? `https://wa.me/55${tel}?text=${encodeURIComponent(msg)}`
     : `https://wa.me/?text=${encodeURIComponent(msg)}`;
   window.open(url, '_blank');
+}
+
+// ── Caixa Geral ───────────────────────────────────────────────────────────────
+async function carregarCaixa() {
+  try {
+    const d = await api('GET', '/api/caixa');
+    document.getElementById('caixa-entradas').textContent = fmt(d.total_entradas);
+    document.getElementById('caixa-saidas').textContent = fmt(d.total_saidas);
+    document.getElementById('caixa-saldo').textContent = fmt(d.saldo_caixa);
+
+    const tbody = document.getElementById('tabela-caixa');
+    if (d.historico.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="4" class="text-center text-muted py-3">Nenhum movimento registrado.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = d.historico.map(h => `
+      <tr>
+        <td class="ps-3 fw-bold">${h.mes_nome}</td>
+        <td class="text-success">${fmt(h.entradas)}</td>
+        <td class="text-danger">${fmt(h.saidas)}</td>
+        <td class="${h.saldo >= 0 ? 'text-success' : 'text-danger'} fw-bold">${fmt(h.saldo)}</td>
+      </tr>`).join('');
+  } catch(e) { toast('Erro ao carregar caixa.', 'danger'); }
 }
 
 // ── Pendentes ─────────────────────────────────────────────────────────────────

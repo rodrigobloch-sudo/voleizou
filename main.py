@@ -382,7 +382,10 @@ def dashboard(mes: Optional[int] = None, ano: Optional[int] = None, db: Session 
         p.valor for p in pagamentos_mes
         if not (p.observacao or "").startswith("PENDENTE|")
     )
-    total_entradas_avulso = sum(p.valor for p in pagamentos_avulso_mes)
+    total_entradas_avulso = sum(
+        p.valor for p in pagamentos_avulso_mes
+        if not (p.observacao or "").startswith("PENDENTE|")
+    )
     total_entradas = total_entradas_mensalidade + total_entradas_avulso
 
     saidas_mes = db.query(models.Saida).filter(
@@ -632,9 +635,10 @@ async def parse_comprovante(file: UploadFile = File(...), db: Session = Depends(
 def caixa_geral(db: Session = Depends(get_db)):
     """Resumo financeiro geral — acumulado de todos os meses."""
 
-    # Todas as entradas aprovadas
+    # Todas as entradas aprovadas (observacao NULL ou sem prefixo PENDENTE)
     todos_pagamentos = db.query(models.Pagamento).filter(
-        ~models.Pagamento.observacao.like("PENDENTE|%")
+        (models.Pagamento.observacao == None) |
+        (~models.Pagamento.observacao.like("PENDENTE|%"))
     ).all()
     total_entradas = sum(p.valor for p in todos_pagamentos)
 

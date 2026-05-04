@@ -693,10 +693,14 @@ function mudaMes(delta) {
 
 // ── Jogadores ────────────────────────────────────────────────────────────────
 let todosJogadores = [];
+let ultimoJogoData = null;
 
 async function carregarJogadores() {
   try {
-    todosJogadores = await api('GET', '/api/jogadores');
+    [todosJogadores, ultimoJogoData] = await Promise.all([
+      api('GET', '/api/jogadores'),
+      api('GET', '/api/jogos').then(jogos => jogos.length > 0 ? jogos[0].data : null),
+    ]);
     renderJogadores();
   } catch(e) { toast(e.message, 'danger'); }
 }
@@ -1204,7 +1208,12 @@ function enviarWhatsApp(jogadorId, nomeJogador, telefone, tipo) {
 
   let msg;
   if (tipo === 'avulso') {
-    msg = `Olá ${nomeJogador}! \n\nAqui é da equipe do Voleizou! 🏐🏐🏐🏐\n\nSegue o link para enviar seu comprovante de pagamento referente ao jogo do dia *${dataJogo}*:\n\n${link}\n\nObrigado!`;
+    let dataJogoFmt = dataJogo; // fallback: hoje
+    if (ultimoJogoData) {
+      const [anoJ, mesJ, diaJ] = ultimoJogoData.split('-');
+      dataJogoFmt = `${diaJ}/${mesJ}/${anoJ}`;
+    }
+    msg = `Olá ${nomeJogador}! \n\nAqui é da equipe do Voleizou! 🏐🏐🏐🏐\n\nSegue o link para enviar seu comprovante de pagamento referente ao jogo do dia *${dataJogoFmt}*:\n\n${link}\n\nObrigado!`;
   } else {
     msg = `Olá ${nomeJogador}! \n\nAqui é da equipe do Voleizou! 🏐🏐🏐🏐\n\nSegue o link para enviar seu comprovante de pagamento referente a *${mes} ${ano}*:\n\n${link}\n\nObrigado!`;
   }

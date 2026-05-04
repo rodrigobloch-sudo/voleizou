@@ -428,22 +428,19 @@
             <option value="avulso">Avulso</option>
           </select>
         </div>
-        <div class="row g-3 mb-3">
-          <div class="col-7">
-            <label class="form-label">Posição</label>
-            <select class="form-select" id="jogador-posicao">
-              <option value="">—</option>
-              <option>Central</option>
-              <option>Ponteiro</option>
-              <option>Oposto</option>
-              <option>Líbero</option>
-              <option>Levantador</option>
-            </select>
+        <div class="mb-3">
+          <label class="form-label">Posição <small class="text-muted">(pode marcar mais de uma)</small></label>
+          <div class="d-flex flex-wrap gap-3 mt-1" id="jogador-posicoes">
+            <div class="form-check"><input class="form-check-input" type="checkbox" id="pos-central" value="Central"><label class="form-check-label" for="pos-central">Central</label></div>
+            <div class="form-check"><input class="form-check-input" type="checkbox" id="pos-ponteiro" value="Ponteiro"><label class="form-check-label" for="pos-ponteiro">Ponteiro</label></div>
+            <div class="form-check"><input class="form-check-input" type="checkbox" id="pos-oposto" value="Oposto"><label class="form-check-label" for="pos-oposto">Oposto</label></div>
+            <div class="form-check"><input class="form-check-input" type="checkbox" id="pos-libero" value="Líbero"><label class="form-check-label" for="pos-libero">Líbero</label></div>
+            <div class="form-check"><input class="form-check-input" type="checkbox" id="pos-levantador" value="Levantador"><label class="form-check-label" for="pos-levantador">Levantador</label></div>
           </div>
-          <div class="col-5">
-            <label class="form-label">Nº da camisa</label>
-            <input type="number" class="form-control" id="jogador-camisa" min="1" max="99" placeholder="Ex: 10" />
-          </div>
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Nº da camisa</label>
+          <input type="number" class="form-control" id="jogador-camisa" min="1" max="99" placeholder="Ex: 10" />
         </div>
         <div class="mb-3">
           <label class="form-label">Data de nascimento</label>
@@ -452,6 +449,16 @@
         <div class="mb-3">
           <label class="form-label">Telefone</label>
           <input type="text" class="form-control" id="jogador-telefone" placeholder="(00) 00000-0000" />
+        </div>
+        <div class="row g-3 mb-3">
+          <div class="col-6">
+            <label class="form-label">CPF <small class="text-muted">(opcional)</small></label>
+            <input type="text" class="form-control" id="jogador-cpf" placeholder="000.000.000-00" />
+          </div>
+          <div class="col-6">
+            <label class="form-label">RG <small class="text-muted">(opcional)</small></label>
+            <input type="text" class="form-control" id="jogador-rg" placeholder="00.000.000-0" />
+          </div>
         </div>
       </div>
       <div class="modal-footer">
@@ -480,6 +487,7 @@
           <select class="form-select" id="jogo-categoria">
             <option value="">— Selecione —</option>
             <option>Jogo Semanal</option>
+            <option>Amistoso</option>
             <option>Torneios Diversos</option>
             <option>Liga Semestral/Anual</option>
           </select>
@@ -791,71 +799,85 @@ async function carregarDashboard() {
   } catch(e) { toast(e.message, 'danger'); }
 }
 
+function catEventColor(categoria) {
+  if (categoria === 'Liga Semestral/Anual') return '#dc2626';
+  if (categoria === 'Torneios Diversos')   return '#d97706';
+  if (categoria === 'Amistoso')            return '#059669';
+  return '#2563eb'; // Jogo Semanal / padrão
+}
+
 function renderCalendario(mes, ano, jogos) {
   const div = document.getElementById('dash-calendario');
   const diasSemana = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
 
-  // Mapa de dia → jogo
+  // Mapa de dia → lista de jogos (pode haver mais de um por dia no futuro)
   const jogosPorDia = {};
   (jogos || []).forEach(j => {
     const dia = parseInt(j.data.split('-')[2]);
-    jogosPorDia[dia] = j;
+    if (!jogosPorDia[dia]) jogosPorDia[dia] = [];
+    jogosPorDia[dia].push(j);
   });
 
-  const primeiroDia = new Date(ano, mes - 1, 1).getDay(); // 0=Dom
+  const primeiroDia = new Date(ano, mes - 1, 1).getDay();
   const ultimoDia = new Date(ano, mes, 0).getDate();
   const hoje = new Date();
   const ehMesAtual = hoje.getFullYear() === ano && hoje.getMonth() + 1 === mes;
   const diaHoje = ehMesAtual ? hoje.getDate() : -1;
 
-  let html = `<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:2px;font-size:0.8rem">`;
+  let html = `<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:2px;font-size:0.78rem">`;
 
-  // Cabeçalho
   diasSemana.forEach(d => {
-    html += `<div class="text-center fw-bold text-muted py-1">${d}</div>`;
+    html += `<div class="text-center fw-bold text-muted py-1" style="font-size:0.72rem">${d}</div>`;
   });
 
-  // Células vazias antes do dia 1
-  for (let i = 0; i < primeiroDia; i++) {
-    html += `<div></div>`;
-  }
+  for (let i = 0; i < primeiroDia; i++) html += `<div></div>`;
 
-  // Dias
   for (let dia = 1; dia <= ultimoDia; dia++) {
-    const jogo = jogosPorDia[dia];
+    const eventos = jogosPorDia[dia] || [];
     const isHoje = dia === diaHoje;
-    const catColor = jogo
-      ? (jogo.categoria === 'Liga Semestral/Anual' ? '#ef4444'
-        : jogo.categoria === 'Torneios Diversos' ? '#f59e0b'
-        : '#2563eb')
-      : null;
+    const cor = eventos.length > 0 ? catEventColor(eventos[0].categoria) : null;
+    const title = eventos.map(j => `${j.categoria || 'Jogo'}${j.observacao ? ' · ' + j.observacao : ''}`).join(' | ');
 
-    html += `<div class="text-center py-1 rounded" style="
-      ${isHoje ? 'background:#e0f2fe;font-weight:700;' : ''}
-      ${jogo ? `background:${catColor}15;border:1px solid ${catColor}40;` : ''}
-      min-height:36px;position:relative;cursor:${jogo ? 'pointer' : 'default'}
-    " ${jogo ? `title="${jogo.categoria || 'Jogo'} · ${jogo.observacao || ''}"` : ''}>
-      <span style="${jogo ? `color:${catColor};font-weight:700;` : ''}">${dia}</span>
-      ${jogo ? `<div style="width:6px;height:6px;border-radius:50%;background:${catColor};margin:0 auto;"></div>` : ''}
+    html += `<div class="text-center rounded" style="
+      min-height:34px;padding:3px 1px;
+      ${isHoje ? 'background:#dbeafe;font-weight:700;' : ''}
+      ${cor ? `background:${cor}18;border:1px solid ${cor}50;` : ''}
+    " ${title ? `title="${title}"` : ''}>
+      <span style="font-size:0.8rem;${cor ? `color:${cor};font-weight:700` : ''}">${dia}</span>
+      <div style="display:flex;justify-content:center;gap:2px;margin-top:1px">
+        ${eventos.map(j => `<span style="width:5px;height:5px;border-radius:50%;background:${catEventColor(j.categoria)};display:inline-block"></span>`).join('')}
+      </div>
     </div>`;
   }
 
   html += `</div>`;
 
-  // Legenda
+  // Legenda de categorias presentes no mês
+  const cats = [...new Set((jogos || []).map(j => j.categoria || 'Jogo Semanal'))];
+  if (cats.length > 0) {
+    html += `<div class="d-flex flex-wrap gap-3 mt-2 pt-2 border-top">`;
+    cats.forEach(cat => {
+      html += `<span class="d-flex align-items-center gap-1 small text-muted">
+        <span style="width:8px;height:8px;border-radius:50%;background:${catEventColor(cat)};display:inline-block"></span>${cat}
+      </span>`;
+    });
+    html += `</div>`;
+  }
+
+  // Lista dos eventos do mês
   if (jogos && jogos.length > 0) {
     html += `<div class="mt-3 pt-2 border-top">`;
     jogos.forEach(j => {
-      const catColor = j.categoria === 'Liga Semestral/Anual' ? '#ef4444' : j.categoria === 'Torneios Diversos' ? '#f59e0b' : '#2563eb';
+      const cor = catEventColor(j.categoria);
       const [,, diaStr] = j.data.split('-');
-      html += `<div class="d-flex align-items-center gap-2 small py-1">
-        <span style="width:10px;height:10px;border-radius:50%;background:${catColor};flex-shrink:0"></span>
-        <span><strong>Dia ${parseInt(diaStr)}</strong> — ${j.categoria || 'Jogo'} ${j.observacao ? '· ' + j.observacao : ''}</span>
+      html += `<div class="d-flex align-items-center gap-2 py-1 small">
+        <span style="width:8px;height:8px;border-radius:50%;background:${cor};flex-shrink:0"></span>
+        <span><strong>Dia ${parseInt(diaStr)}</strong> — <span style="color:${cor}">${j.categoria || 'Jogo Semanal'}</span>${j.observacao ? ' · ' + j.observacao : ''}</span>
       </div>`;
     });
     html += `</div>`;
   } else {
-    html += `<p class="text-muted small mt-3">Nenhum jogo registrado neste mês.</p>`;
+    html += `<p class="text-muted small mt-3 mb-0">Nenhum evento registrado neste mês.</p>`;
   }
 
   div.innerHTML = html;
@@ -908,7 +930,7 @@ function renderJogadores() {
     <tr>
       <td class="ps-3"><strong>${j.nome}</strong></td>
       <td><span class="badge ${j.tipo === 'mensalista' ? 'badge-mensalista' : 'badge-avulso'}">${j.tipo}</span></td>
-      <td>${j.posicao || '—'}</td>
+      <td>${j.posicao ? j.posicao.split(',').map(p => `<span class="badge bg-light text-dark border me-1">${p.trim()}</span>`).join('') : '—'}</td>
       <td>${j.numero_camisa != null ? '#' + j.numero_camisa : '—'}</td>
       <td>${j.data_nascimento ? fmtDate(j.data_nascimento) : '—'}</td>
       <td>${j.telefone || '—'}</td>
@@ -923,14 +945,28 @@ function renderJogadores() {
     </tr>`).join('');
 }
 
+function setPosicoes(val) {
+  const ativas = (val || '').split(',').map(s => s.trim()).filter(Boolean);
+  document.querySelectorAll('#jogador-posicoes input[type=checkbox]').forEach(cb => {
+    cb.checked = ativas.includes(cb.value);
+  });
+}
+
+function getPosicoes() {
+  const checked = [...document.querySelectorAll('#jogador-posicoes input[type=checkbox]:checked')];
+  return checked.map(cb => cb.value).join(',') || null;
+}
+
 function abrirModalJogador() {
   document.getElementById('jogador-id').value = '';
   document.getElementById('jogador-nome').value = '';
   document.getElementById('jogador-tipo').value = 'mensalista';
-  document.getElementById('jogador-posicao').value = '';
+  setPosicoes('');
   document.getElementById('jogador-camisa').value = '';
   document.getElementById('jogador-nascimento').value = '';
   document.getElementById('jogador-telefone').value = '';
+  document.getElementById('jogador-cpf').value = '';
+  document.getElementById('jogador-rg').value = '';
   document.getElementById('modalJogadorTitulo').textContent = 'Novo jogador';
   new bootstrap.Modal('#modalJogador').show();
 }
@@ -941,10 +977,12 @@ async function editarJogador(id) {
   document.getElementById('jogador-id').value = j.id;
   document.getElementById('jogador-nome').value = j.nome;
   document.getElementById('jogador-tipo').value = j.tipo;
-  document.getElementById('jogador-posicao').value = j.posicao || '';
+  setPosicoes(j.posicao || '');
   document.getElementById('jogador-camisa').value = j.numero_camisa != null ? j.numero_camisa : '';
   document.getElementById('jogador-nascimento').value = j.data_nascimento || '';
   document.getElementById('jogador-telefone').value = j.telefone || '';
+  document.getElementById('jogador-cpf').value = j.cpf || '';
+  document.getElementById('jogador-rg').value = j.rg || '';
   document.getElementById('modalJogadorTitulo').textContent = 'Editar jogador';
   new bootstrap.Modal('#modalJogador').show();
 }
@@ -957,9 +995,11 @@ async function salvarJogador() {
     nome: document.getElementById('jogador-nome').value.trim(),
     tipo: document.getElementById('jogador-tipo').value,
     telefone: document.getElementById('jogador-telefone').value.trim() || null,
-    posicao: document.getElementById('jogador-posicao').value || null,
+    posicao: getPosicoes(),
     numero_camisa: camisaVal ? parseInt(camisaVal) : null,
     data_nascimento: nascVal || null,
+    cpf: document.getElementById('jogador-cpf').value.trim() || null,
+    rg: document.getElementById('jogador-rg').value.trim() || null,
   };
   if (!data.nome) { toast('Nome é obrigatório', 'warning'); return; }
   try {
@@ -1014,7 +1054,7 @@ function renderJogos() {
       `<span class="badge badge-avulso me-1 mb-1">${a.nome}</span>`
     ).join('');
 
-    const catColor = j.categoria === 'Liga Semestral/Anual' ? 'bg-danger' : j.categoria === 'Torneios Diversos' ? 'bg-warning text-dark' : 'bg-primary';
+    const catColor = j.categoria === 'Liga Semestral/Anual' ? 'bg-danger' : j.categoria === 'Torneios Diversos' ? 'bg-warning text-dark' : j.categoria === 'Amistoso' ? 'bg-success' : 'bg-primary';
     return `
     <div class="card mb-3">
       <div class="card-body">

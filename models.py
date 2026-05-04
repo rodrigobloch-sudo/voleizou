@@ -11,9 +11,11 @@ class Jogador(Base):
     nome            = Column(String, nullable=False)
     tipo            = Column(String, nullable=False)   # "mensalista" | "avulso"
     telefone        = Column(String, nullable=True)
-    posicao         = Column(String, nullable=True)    # Central, Ponteiro, Oposto, Líbero, Levantador
+    posicao         = Column(String, nullable=True)    # pode ser múltipla, ex: "Central,Ponteiro"
     numero_camisa   = Column(Integer, nullable=True)
     data_nascimento = Column(Date, nullable=True)
+    cpf             = Column(String, nullable=True)
+    rg              = Column(String, nullable=True)
     ativo           = Column(Boolean, default=True)
     criado_em       = Column(DateTime, server_default=func.now())
 
@@ -25,8 +27,8 @@ class Jogo(Base):
     __tablename__ = "jogos"
 
     id         = Column(Integer, primary_key=True, index=True)
-    data       = Column(Date, nullable=False, unique=True)
-    categoria  = Column(String, nullable=True)   # "Jogo Semanal" | "Torneios Diversos" | "Liga Semestral/Anual"
+    data       = Column(Date, nullable=False)
+    categoria  = Column(String, nullable=True)   # "Jogo Semanal" | "Amistoso" | "Torneios Diversos" | "Liga Semestral/Anual"
     observacao = Column(String, nullable=True)
     criado_em  = Column(DateTime, server_default=func.now())
 

@@ -18,26 +18,58 @@ models.Base.metadata.create_all(bind=engine)
 def _migrar():
     from database import engine as _engine, is_sqlite
     with _engine.connect() as conn:
+        from sqlalchemy import text as _text
         migrações = [
             ("jogadores", "posicao",         "VARCHAR"),
             ("jogadores", "numero_camisa",    "INTEGER"),
             ("jogadores", "data_nascimento",  "DATE"),
+            ("jogadores", "cpf",             "VARCHAR"),
+            ("jogadores", "rg",              "VARCHAR"),
             ("jogos",     "categoria",        "VARCHAR"),
         ]
         for tabela, coluna, tipo in migrações:
             try:
                 if is_sqlite:
-                    conn.execute(__import__('sqlalchemy').text(
-                        f"ALTER TABLE {tabela} ADD COLUMN {coluna} {tipo}"
-                    ))
+                    conn.execute(_text(f"ALTER TABLE {tabela} ADD COLUMN {coluna} {tipo}"))
                 else:
-                    conn.execute(__import__('sqlalchemy').text(
-                        f"ALTER TABLE {tabela} ADD COLUMN IF NOT EXISTS {coluna} {tipo}"
-                    ))
+                    conn.execute(_text(f"ALTER TABLE {tabela} ADD COLUMN IF NOT EXISTS {coluna} {tipo}"))
                 conn.commit()
             except Exception:
                 try: conn.rollback()
                 except: pass
+
+        # Remove o índice único de data em jogos (para permitir múltiplos eventos por dia)
+        if is_sqlite:
+            # SQLite: verifica se a tabela tem unique constraint em data e recria sem ela
+            try:
+                row = conn.execute(_text("SELECT sql FROM sqlite_master WHERE type='table' AND name='jogos'")).fetchone()
+                if row and 'UNIQUE' in (row[0] or '').upper():
+                    conn.execute(_text("PRAGMA foreign_keys=OFF"))
+                    conn.execute(_text("""
+                        CREATE TABLE jogos_new (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            data DATE NOT NULL,
+                            categoria VARCHAR,
+                            observacao VARCHAR,
+                            criado_em DATETIME DEFAULT (CURRENT_TIMESTAMP)
+                        )
+                    """))
+                    conn.execute(_text("INSERT INTO jogos_new (id,data,categoria,observacao,criado_em) SELECT id,data,categoria,observacao,criado_em FROM jogos"))
+                    conn.execute(_text("DROP TABLE jogos"))
+                    conn.execute(_text("ALTER TABLE jogos_new RENAME TO jogos"))
+                    conn.execute(_text("PRAGMA foreign_keys=ON"))
+                    conn.commit()
+            except Exception:
+                try: conn.rollback()
+                except: pass
+        else:
+            for idx_name in ("ix_jogos_data", "uq_jogos_data", "jogos_data_key"):
+                try:
+                    conn.execute(_text(f"DROP INDEX IF EXISTS {idx_name}"))
+                    conn.commit()
+                except Exception:
+                    try: conn.rollback()
+                    except: pass
 
 _migrar()
 
@@ -76,6 +108,8 @@ class JogadorCreate(BaseModel):
     posicao: Optional[str] = None
     numero_camisa: Optional[int] = None
     data_nascimento: Optional[date] = None
+    cpf: Optional[str] = None
+    rg: Optional[str] = None
 
 class JogadorUpdate(BaseModel):
     nome: Optional[str] = None
@@ -84,6 +118,8 @@ class JogadorUpdate(BaseModel):
     posicao: Optional[str] = None
     numero_camisa: Optional[int] = None
     data_nascimento: Optional[date] = None
+    cpf: Optional[str] = None
+    rg: Optional[str] = None
     ativo: Optional[bool] = None
 
 class JogoCreate(BaseModel):
@@ -125,6 +161,8 @@ def listar_jogadores(tipo: Optional[str] = None, db: Session = Depends(get_db)):
             "posicao": j.posicao,
             "numero_camisa": j.numero_camisa,
             "data_nascimento": j.data_nascimento.isoformat() if j.data_nascimento else None,
+            "cpf": j.cpf,
+            "rg": j.rg,
             "criado_em": j.criado_em.isoformat() if j.criado_em else None,
         }
         for j in jogadores
@@ -140,7 +178,8 @@ def criar_jogador(data: JogadorCreate, db: Session = Depends(get_db)):
     db.refresh(j)
     return {"id": j.id, "nome": j.nome, "tipo": j.tipo, "telefone": j.telefone, "ativo": j.ativo,
             "posicao": j.posicao, "numero_camisa": j.numero_camisa,
-            "data_nascimento": j.data_nascimento.isoformat() if j.data_nascimento else None}
+            "data_nascimento": j.data_nascimento.isoformat() if j.data_nascimento else None,
+            "cpf": j.cpf, "rg": j.rg}
 
 @app.put("/api/jogadores/{jogador_id}")
 def atualizar_jogador(jogador_id: int, data: JogadorUpdate, db: Session = Depends(get_db)):
@@ -152,7 +191,8 @@ def atualizar_jogador(jogador_id: int, data: JogadorUpdate, db: Session = Depend
     db.commit()
     return {"id": j.id, "nome": j.nome, "tipo": j.tipo, "telefone": j.telefone, "ativo": j.ativo,
             "posicao": j.posicao, "numero_camisa": j.numero_camisa,
-            "data_nascimento": j.data_nascimento.isoformat() if j.data_nascimento else None}
+            "data_nascimento": j.data_nascimento.isoformat() if j.data_nascimento else None,
+            "cpf": j.cpf, "rg": j.rg}
 
 @app.delete("/api/jogadores/{jogador_id}")
 def desativar_jogador(jogador_id: int, db: Session = Depends(get_db)):
@@ -191,9 +231,7 @@ def listar_jogos(db: Session = Depends(get_db)):
 
 @app.post("/api/jogos", status_code=201)
 def criar_jogo(data: JogoCreate, db: Session = Depends(get_db)):
-    existente = db.query(models.Jogo).filter(models.Jogo.data == data.data).first()
-    if existente:
-        raise HTTPException(400, "Já existe um jogo nesta data")
+    # Permite múltiplos eventos na mesma data (ex: jogo semanal + amistoso)
     jogo = models.Jogo(**data.model_dump())
     db.add(jogo)
     db.commit()

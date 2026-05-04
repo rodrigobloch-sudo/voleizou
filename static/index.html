@@ -183,7 +183,7 @@
       </div>
     </div>
 
-    <div class="row g-3">
+    <div class="row g-3 mb-3">
       <!-- Calendário de jogos -->
       <div class="col-md-8">
         <div class="card p-3">
@@ -198,6 +198,12 @@
           <div id="dash-aniversariantes"></div>
         </div>
       </div>
+    </div>
+
+    <!-- Presenças do mês -->
+    <div class="card p-3">
+      <h6 class="fw-bold mb-1"><i class="bi bi-person-check-fill text-success me-2"></i>Presenças do mês <small id="dash-presencas-subtitulo" class="text-muted fw-normal"></small></h6>
+      <div id="dash-presencas"></div>
     </div>
   </div>
 
@@ -859,6 +865,46 @@ async function carregarDashboard() {
 
     // Calendário
     renderCalendario(d.mes, d.ano, d.jogos_mes);
+
+    // Presenças
+    const presDiv = document.getElementById('dash-presencas');
+    const subtitulo = document.getElementById('dash-presencas-subtitulo');
+    const totalJ = d.total_jogos_passados || 0;
+    subtitulo.textContent = totalJ === 0
+      ? '— nenhum jogo realizado ainda'
+      : `— ${totalJ} jogo${totalJ > 1 ? 's' : ''} realizado${totalJ > 1 ? 's' : ''} no mês`;
+
+    if (!d.presencas_mes || d.presencas_mes.length === 0) {
+      presDiv.innerHTML = '<p class="text-muted small mt-2">Nenhum jogador com presença registrada.</p>';
+    } else {
+      presDiv.innerHTML = `<div class="table-responsive mt-2"><table class="table table-sm mb-0">
+        <thead><tr>
+          <th style="width:40%">Jogador</th>
+          <th style="width:15%">Tipo</th>
+          <th style="width:15%" class="text-center">Presenças</th>
+          <th>Frequência</th>
+        </tr></thead>
+        <tbody>
+          ${d.presencas_mes.map(p => {
+            const pct = totalJ > 0 ? Math.round((p.presencas / totalJ) * 100) : 0;
+            const barColor = pct >= 75 ? 'bg-success' : pct >= 40 ? 'bg-warning' : 'bg-danger';
+            return `<tr>
+              <td class="fw-bold">${p.nome}</td>
+              <td><span class="badge ${p.tipo === 'mensalista' ? 'badge-mensalista' : 'badge-avulso'}">${p.tipo}</span></td>
+              <td class="text-center">${p.presencas}${totalJ > 0 ? ' / ' + totalJ : ''}</td>
+              <td style="min-width:120px">
+                <div class="d-flex align-items-center gap-2">
+                  <div class="progress flex-grow-1" style="height:8px">
+                    <div class="progress-bar ${barColor}" style="width:${pct}%"></div>
+                  </div>
+                  <small class="text-muted" style="min-width:32px">${pct}%</small>
+                </div>
+              </td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table></div>`;
+    }
 
   } catch(e) { toast(e.message, 'danger'); }
 }

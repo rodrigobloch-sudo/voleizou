@@ -550,6 +550,35 @@ def dashboard(mes: Optional[int] = None, ano: Optional[int] = None, db: Session 
         extract("year", models.Jogo.data) == ano,
     ).order_by(models.Jogo.data).all()
 
+    # Presenças do mês — apenas jogos passados
+    jogos_passados = [j for j in todos_jogos_mes if j.data < hoje]
+    total_jogos_passados = len(jogos_passados)
+
+    todos_ativos = db.query(models.Jogador).filter(
+        models.Jogador.ativo == True
+    ).order_by(models.Jogador.nome).all()
+
+    presencas_mes = []
+    for jogador in todos_ativos:
+        count = 0
+        for jogo in jogos_passados:
+            ausentes_ids = [int(x) for x in (jogo.mensalistas_ausentes or '').split(',') if x.strip()]
+            if jogador.tipo == 'mensalista':
+                if jogador.id not in ausentes_ids:
+                    count += 1
+            else:
+                if any(p.jogador_id == jogador.id for p in jogo.participacoes):
+                    count += 1
+        # Mensalistas: inclui sempre; avulsos: só se tiver ao menos 1 presença
+        if jogador.tipo == 'mensalista' or count > 0:
+            presencas_mes.append({
+                "id": jogador.id,
+                "nome": jogador.nome,
+                "tipo": jogador.tipo,
+                "presencas": count,
+                "total": total_jogos_passados,
+            })
+
     return {
         "mes": mes,
         "ano": ano,
@@ -558,6 +587,8 @@ def dashboard(mes: Optional[int] = None, ano: Optional[int] = None, db: Session 
         "avulsos_resumo": avulsos_resumo,
         "jogos_mes": [{"id": j.id, "data": j.data.isoformat(), "categoria": j.categoria, "observacao": j.observacao} for j in todos_jogos_mes],
         "aniversariantes": aniversariantes,
+        "presencas_mes": presencas_mes,
+        "total_jogos_passados": total_jogos_passados,
         "total_entradas": total_entradas,
         "total_saidas": total_saidas,
         "saldo": total_entradas - total_saidas,

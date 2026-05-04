@@ -9,6 +9,7 @@ from pydantic import BaseModel
 from typing import Optional, List
 from datetime import date, datetime
 import models, hmac, hashlib, bcrypt
+from cryptography.fernet import Fernet, InvalidToken
 from leitor_comprovante import ler_comprovante
 from database import engine, get_db, is_sqlite, SessionLocal
 import os, socket, subprocess
@@ -17,9 +18,41 @@ models.Base.metadata.create_all(bind=engine)
 
 # ── Autenticação ──────────────────────────────────────────────────────────────
 
-SECRET_KEY   = os.getenv("SECRET_KEY",    "volei-dev-secret-2024")
-ADMIN_USER   = os.getenv("ADMIN_USER",    "admin")
-ADMIN_PASS   = os.getenv("ADMIN_PASSWORD","volei123")
+SECRET_KEY      = os.getenv("SECRET_KEY",      "volei-dev-secret-2024")
+ADMIN_USER      = os.getenv("ADMIN_USER",      "admin")
+ADMIN_PASS      = os.getenv("ADMIN_PASSWORD",  "volei123")
+ENCRYPTION_KEY  = os.getenv("ENCRYPTION_KEY",  "")
+
+# ── Helpers de criptografia (CPF / RG) ───────────────────────────────────────
+
+def _fernet() -> Fernet | None:
+    if not ENCRYPTION_KEY:
+        return None
+    try:
+        return Fernet(ENCRYPTION_KEY.encode())
+    except Exception:
+        return None
+
+def _encrypt(value: str | None) -> str | None:
+    """Criptografa um valor antes de salvar no banco. Retorna None se value for None."""
+    if not value:
+        return value
+    f = _fernet()
+    if not f:
+        return value  # sem chave configurada: salva em claro (ambiente local)
+    return f.encrypt(value.encode()).decode()
+
+def _decrypt(value: str | None) -> str | None:
+    """Descriptografa um valor lido do banco. Retorna o valor original se não estiver criptografado."""
+    if not value:
+        return value
+    f = _fernet()
+    if not f:
+        return value
+    try:
+        return f.decrypt(value.encode()).decode()
+    except (InvalidToken, Exception):
+        return value  # já estava em texto puro (dados antigos)
 
 def _criar_token(usuario: str) -> str:
     payload = f"{usuario}:{date.today().toordinal()}"
@@ -129,6 +162,29 @@ def _seed_admin():
         db.close()
 
 _seed_admin()
+
+def _migrar_criptografia():
+    """Criptografa CPF/RG existentes que ainda estão em texto puro."""
+    f = _fernet()
+    if not f:
+        return  # chave não configurada — nada a fazer
+    db = SessionLocal()
+    try:
+        jogadores = db.query(models.Jogador).filter(
+            (models.Jogador.cpf != None) | (models.Jogador.rg != None)
+        ).all()
+        for j in jogadores:
+            if j.cpf and not j.cpf.startswith("gA"):   # "gA" = prefixo de token Fernet
+                j.cpf = f.encrypt(j.cpf.encode()).decode()
+            if j.rg and not j.rg.startswith("gA"):
+                j.rg = f.encrypt(j.rg.encode()).decode()
+        db.commit()
+    except Exception:
+        db.rollback()
+    finally:
+        db.close()
+
+_migrar_criptografia()
 
 def get_local_ip():
     try:
@@ -312,8 +368,8 @@ def listar_jogadores(tipo: Optional[str] = None, db: Session = Depends(get_db)):
             "posicao": j.posicao,
             "numero_camisa": j.numero_camisa,
             "data_nascimento": j.data_nascimento.isoformat() if j.data_nascimento else None,
-            "cpf": j.cpf,
-            "rg": j.rg,
+            "cpf": _decrypt(j.cpf),
+            "rg": _decrypt(j.rg),
             "criado_em": j.criado_em.isoformat() if j.criado_em else None,
         }
         for j in jogadores
@@ -338,14 +394,17 @@ def criar_jogador(data: JogadorCreate, db: Session = Depends(get_db)):
     if data.tipo not in ("mensalista", "avulso"):
         raise HTTPException(400, "tipo deve ser 'mensalista' ou 'avulso'")
     _checar_camisa(db, data.numero_camisa)
-    j = models.Jogador(**data.model_dump())
+    dados = data.model_dump()
+    dados["cpf"] = _encrypt(dados.get("cpf"))
+    dados["rg"]  = _encrypt(dados.get("rg"))
+    j = models.Jogador(**dados)
     db.add(j)
     db.commit()
     db.refresh(j)
     return {"id": j.id, "nome": j.nome, "tipo": j.tipo, "telefone": j.telefone, "ativo": j.ativo,
             "posicao": j.posicao, "numero_camisa": j.numero_camisa,
             "data_nascimento": j.data_nascimento.isoformat() if j.data_nascimento else None,
-            "cpf": j.cpf, "rg": j.rg}
+            "cpf": _decrypt(j.cpf), "rg": _decrypt(j.rg)}
 
 @app.put("/api/jogadores/{jogador_id}")
 def atualizar_jogador(jogador_id: int, data: JogadorUpdate, db: Session = Depends(get_db)):
@@ -354,12 +413,14 @@ def atualizar_jogador(jogador_id: int, data: JogadorUpdate, db: Session = Depend
         raise HTTPException(404, "Jogador não encontrado")
     _checar_camisa(db, data.numero_camisa, excluir_id=jogador_id)
     for field, value in data.model_dump(exclude_unset=True).items():
+        if field in ("cpf", "rg"):
+            value = _encrypt(value)
         setattr(j, field, value)
     db.commit()
     return {"id": j.id, "nome": j.nome, "tipo": j.tipo, "telefone": j.telefone, "ativo": j.ativo,
             "posicao": j.posicao, "numero_camisa": j.numero_camisa,
             "data_nascimento": j.data_nascimento.isoformat() if j.data_nascimento else None,
-            "cpf": j.cpf, "rg": j.rg}
+            "cpf": _decrypt(j.cpf), "rg": _decrypt(j.rg)}
 
 @app.delete("/api/jogadores/{jogador_id}")
 def desativar_jogador(jogador_id: int, db: Session = Depends(get_db)):

@@ -1213,9 +1213,11 @@ function enviarWhatsApp(jogadorId, nomeJogador, telefone, tipo) {
       const [anoJ, mesJ, diaJ] = ultimoJogoData.split('-');
       dataJogoFmt = `${diaJ}/${mesJ}/${anoJ}`;
     }
-    msg = `Olá ${nomeJogador}! \n\nAqui é da equipe do Voleizou! 🏐🏐🏐🏐\n\nSegue o link para enviar seu comprovante de pagamento referente ao jogo do dia *${dataJogoFmt}*:\n\n${link}\n\nObrigado!`;
+    const volei = '\uD83C\uDFD0';
+    msg = `Olá ${nomeJogador}! \n\nAqui é da equipe do Voleizou! ${volei}${volei}${volei}${volei}\n\nSegue o link para enviar seu comprovante de pagamento referente ao jogo do dia *${dataJogoFmt}*:\n\n${link}\n\nObrigado!`;
   } else {
-    msg = `Olá ${nomeJogador}! \n\nAqui é da equipe do Voleizou! 🏐🏐🏐🏐\n\nSegue o link para enviar seu comprovante de pagamento referente a *${mes} ${ano}*:\n\n${link}\n\nObrigado!`;
+    const volei = '\uD83C\uDFD0';
+    msg = `Olá ${nomeJogador}! \n\nAqui é da equipe do Voleizou! ${volei}${volei}${volei}${volei}\n\nSegue o link para enviar seu comprovante de pagamento referente a *${mes} ${ano}*:\n\n${link}\n\nObrigado!`;
   }
 
   const tel = telefone ? telefone.replace(/\D/g, '') : '';

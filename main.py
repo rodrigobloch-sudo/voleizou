@@ -14,6 +14,33 @@ import os, socket, subprocess
 
 models.Base.metadata.create_all(bind=engine)
 
+# ── Migrações automáticas (adiciona colunas novas sem recriar tabelas) ────────
+def _migrar():
+    from database import engine as _engine, is_sqlite
+    with _engine.connect() as conn:
+        migrações = [
+            ("jogadores", "posicao",         "VARCHAR"),
+            ("jogadores", "numero_camisa",    "INTEGER"),
+            ("jogadores", "data_nascimento",  "DATE"),
+            ("jogos",     "categoria",        "VARCHAR"),
+        ]
+        for tabela, coluna, tipo in migrações:
+            try:
+                if is_sqlite:
+                    conn.execute(__import__('sqlalchemy').text(
+                        f"ALTER TABLE {tabela} ADD COLUMN {coluna} {tipo}"
+                    ))
+                else:
+                    conn.execute(__import__('sqlalchemy').text(
+                        f"ALTER TABLE {tabela} ADD COLUMN IF NOT EXISTS {coluna} {tipo}"
+                    ))
+                conn.commit()
+            except Exception:
+                try: conn.rollback()
+                except: pass
+
+_migrar()
+
 def get_local_ip():
     try:
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -46,15 +73,22 @@ class JogadorCreate(BaseModel):
     nome: str
     tipo: str
     telefone: Optional[str] = None
+    posicao: Optional[str] = None
+    numero_camisa: Optional[int] = None
+    data_nascimento: Optional[date] = None
 
 class JogadorUpdate(BaseModel):
     nome: Optional[str] = None
     tipo: Optional[str] = None
     telefone: Optional[str] = None
+    posicao: Optional[str] = None
+    numero_camisa: Optional[int] = None
+    data_nascimento: Optional[date] = None
     ativo: Optional[bool] = None
 
 class JogoCreate(BaseModel):
     data: date
+    categoria: Optional[str] = None
     observacao: Optional[str] = None
 
 class ParticipacaoCreate(BaseModel):
@@ -88,6 +122,9 @@ def listar_jogadores(tipo: Optional[str] = None, db: Session = Depends(get_db)):
         {
             "id": j.id, "nome": j.nome, "tipo": j.tipo,
             "telefone": j.telefone, "ativo": j.ativo,
+            "posicao": j.posicao,
+            "numero_camisa": j.numero_camisa,
+            "data_nascimento": j.data_nascimento.isoformat() if j.data_nascimento else None,
             "criado_em": j.criado_em.isoformat() if j.criado_em else None,
         }
         for j in jogadores
@@ -101,7 +138,9 @@ def criar_jogador(data: JogadorCreate, db: Session = Depends(get_db)):
     db.add(j)
     db.commit()
     db.refresh(j)
-    return {"id": j.id, "nome": j.nome, "tipo": j.tipo, "telefone": j.telefone, "ativo": j.ativo}
+    return {"id": j.id, "nome": j.nome, "tipo": j.tipo, "telefone": j.telefone, "ativo": j.ativo,
+            "posicao": j.posicao, "numero_camisa": j.numero_camisa,
+            "data_nascimento": j.data_nascimento.isoformat() if j.data_nascimento else None}
 
 @app.put("/api/jogadores/{jogador_id}")
 def atualizar_jogador(jogador_id: int, data: JogadorUpdate, db: Session = Depends(get_db)):
@@ -111,7 +150,9 @@ def atualizar_jogador(jogador_id: int, data: JogadorUpdate, db: Session = Depend
     for field, value in data.model_dump(exclude_none=True).items():
         setattr(j, field, value)
     db.commit()
-    return {"id": j.id, "nome": j.nome, "tipo": j.tipo, "telefone": j.telefone, "ativo": j.ativo}
+    return {"id": j.id, "nome": j.nome, "tipo": j.tipo, "telefone": j.telefone, "ativo": j.ativo,
+            "posicao": j.posicao, "numero_camisa": j.numero_camisa,
+            "data_nascimento": j.data_nascimento.isoformat() if j.data_nascimento else None}
 
 @app.delete("/api/jogadores/{jogador_id}")
 def desativar_jogador(jogador_id: int, db: Session = Depends(get_db)):
@@ -141,6 +182,7 @@ def listar_jogos(db: Session = Depends(get_db)):
         result.append({
             "id": jogo.id,
             "data": jogo.data.isoformat(),
+            "categoria": jogo.categoria,
             "observacao": jogo.observacao,
             "avulsos": avulsos,
             "total_avulsos": len(avulsos),
@@ -156,7 +198,7 @@ def criar_jogo(data: JogoCreate, db: Session = Depends(get_db)):
     db.add(jogo)
     db.commit()
     db.refresh(jogo)
-    return {"id": jogo.id, "data": jogo.data.isoformat(), "observacao": jogo.observacao}
+    return {"id": jogo.id, "data": jogo.data.isoformat(), "categoria": jogo.categoria, "observacao": jogo.observacao}
 
 @app.get("/api/jogos/{jogo_id}")
 def obter_jogo(jogo_id: int, db: Session = Depends(get_db)):
@@ -167,7 +209,7 @@ def obter_jogo(jogo_id: int, db: Session = Depends(get_db)):
         {"id": p.jogador.id, "nome": p.jogador.nome, "participacao_id": p.id}
         for p in jogo.participacoes
     ]
-    return {"id": jogo.id, "data": jogo.data.isoformat(), "observacao": jogo.observacao, "avulsos": avulsos}
+    return {"id": jogo.id, "data": jogo.data.isoformat(), "categoria": jogo.categoria, "observacao": jogo.observacao, "avulsos": avulsos}
 
 @app.post("/api/jogos/{jogo_id}/participacoes", status_code=201)
 def adicionar_avulso(jogo_id: int, data: ParticipacaoCreate, db: Session = Depends(get_db)):
@@ -394,13 +436,37 @@ def dashboard(mes: Optional[int] = None, ano: Optional[int] = None, db: Session 
     ).all()
     total_saidas = sum(s.valor for s in saidas_mes)
 
+    # Aniversariantes do mês
+    todos_jogadores_ativos = db.query(models.Jogador).filter(
+        models.Jogador.ativo == True,
+        models.Jogador.data_nascimento != None
+    ).all()
+    aniversariantes = []
+    for j in todos_jogadores_ativos:
+        if j.data_nascimento and j.data_nascimento.month == mes:
+            aniversariantes.append({
+                "id": j.id,
+                "nome": j.nome,
+                "tipo": j.tipo,
+                "data_nascimento": j.data_nascimento.isoformat(),
+                "dia": j.data_nascimento.day,
+            })
+    aniversariantes.sort(key=lambda x: x["dia"])
+
+    # Todos os jogos do mês para o calendário
+    todos_jogos_mes = db.query(models.Jogo).filter(
+        extract("month", models.Jogo.data) == mes,
+        extract("year", models.Jogo.data) == ano,
+    ).order_by(models.Jogo.data).all()
+
     return {
         "mes": mes,
         "ano": ano,
         "mes_nome": f"{MESES_PT[mes]} {ano}",
         "mensalistas_lista": mensalistas_lista,
         "avulsos_resumo": avulsos_resumo,
-        "jogos_mes": [{"id": j.id, "data": j.data.isoformat()} for j in jogos_mes],
+        "jogos_mes": [{"id": j.id, "data": j.data.isoformat(), "categoria": j.categoria, "observacao": j.observacao} for j in todos_jogos_mes],
+        "aniversariantes": aniversariantes,
         "total_entradas": total_entradas,
         "total_saidas": total_saidas,
         "saldo": total_entradas - total_saidas,

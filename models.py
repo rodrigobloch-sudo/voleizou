@@ -7,12 +7,15 @@ from database import Base
 class Jogador(Base):
     __tablename__ = "jogadores"
 
-    id         = Column(Integer, primary_key=True, index=True)
-    nome       = Column(String, nullable=False)
-    tipo       = Column(String, nullable=False)   # "mensalista" | "avulso"
-    telefone   = Column(String, nullable=True)
-    ativo      = Column(Boolean, default=True)
-    criado_em  = Column(DateTime, server_default=func.now())
+    id              = Column(Integer, primary_key=True, index=True)
+    nome            = Column(String, nullable=False)
+    tipo            = Column(String, nullable=False)   # "mensalista" | "avulso"
+    telefone        = Column(String, nullable=True)
+    posicao         = Column(String, nullable=True)    # Central, Ponteiro, Oposto, Líbero, Levantador
+    numero_camisa   = Column(Integer, nullable=True)
+    data_nascimento = Column(Date, nullable=True)
+    ativo           = Column(Boolean, default=True)
+    criado_em       = Column(DateTime, server_default=func.now())
 
     pagamentos   = relationship("Pagamento", back_populates="jogador", cascade="all, delete-orphan")
     participacoes = relationship("ParticipacaoAvulso", back_populates="jogador", cascade="all, delete-orphan")
@@ -23,6 +26,7 @@ class Jogo(Base):
 
     id         = Column(Integer, primary_key=True, index=True)
     data       = Column(Date, nullable=False, unique=True)
+    categoria  = Column(String, nullable=True)   # "Jogo Semanal" | "Torneios Diversos" | "Liga Semestral/Anual"
     observacao = Column(String, nullable=True)
     criado_em  = Column(DateTime, server_default=func.now())
 

@@ -2302,7 +2302,11 @@ async function salvarNovoUsuario() {
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({nome, usuario, senha}),
     });
-    if (!res.ok) { const d = await res.json(); erro.textContent = d.detail; erro.classList.remove('d-none'); return; }
+    if (!res.ok) {
+      const d = await res.json();
+      const msg = Array.isArray(d.detail) ? d.detail.map(e => e.msg).join(', ') : (d.detail || 'Erro desconhecido');
+      erro.textContent = msg; erro.classList.remove('d-none'); return;
+    }
     bootstrap.Modal.getInstance(document.getElementById('modalNovoUsuario')).hide();
     toast('Usuário criado!', 'success');
     carregarUsuarios();
@@ -2328,7 +2332,11 @@ async function salvarNovaSenha() {
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({senha_nova: senha}),
     });
-    if (!res.ok) { const d = await res.json(); erro.textContent = d.detail; erro.classList.remove('d-none'); return; }
+    if (!res.ok) {
+      const d = await res.json();
+      const msg = Array.isArray(d.detail) ? d.detail.map(e => e.msg).join(', ') : (d.detail || 'Erro desconhecido');
+      erro.textContent = msg; erro.classList.remove('d-none'); return;
+    }
     bootstrap.Modal.getInstance(document.getElementById('modalAlterarSenha')).hide();
     toast('Senha alterada!', 'success');
   } catch(e) { erro.textContent = 'Erro ao alterar senha.'; erro.classList.remove('d-none'); }

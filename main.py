@@ -206,7 +206,7 @@ def atualizar_jogador(jogador_id: int, data: JogadorUpdate, db: Session = Depend
     if not j:
         raise HTTPException(404, "Jogador não encontrado")
     _checar_camisa(db, data.numero_camisa, excluir_id=jogador_id)
-    for field, value in data.model_dump(exclude_none=True).items():
+    for field, value in data.model_dump(exclude_unset=True).items():
         setattr(j, field, value)
     db.commit()
     return {"id": j.id, "nome": j.nome, "tipo": j.tipo, "telefone": j.telefone, "ativo": j.ativo,

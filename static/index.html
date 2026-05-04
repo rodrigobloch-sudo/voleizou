@@ -209,7 +209,7 @@
 
   <!-- ── JOGADORES ── -->
   <div id="page-jogadores" class="page">
-    <div class="d-flex justify-content-between align-items-center mb-4">
+    <div class="d-flex justify-content-between align-items-center mb-3">
       <h5 class="fw-bold mb-0">Jogadores</h5>
       <div class="d-flex gap-2">
         <button class="btn btn-success btn-sm" onclick="abrirCobrancaMassa()">
@@ -220,6 +220,9 @@
         </button>
       </div>
     </div>
+
+    <!-- Painel de posições -->
+    <div id="painel-posicoes" class="mb-4"></div>
     <div class="card">
       <div class="card-body p-0">
         <div class="p-3 border-bottom d-flex gap-2">
@@ -1026,7 +1029,81 @@ function filtrarJogadores(tipo) {
   renderJogadores();
 }
 
+function renderPainelPosicoes() {
+  const POSICOES = ['Central','Ponteiro','Oposto','Líbero','Levantador','4x2'];
+  const ativos = todosJogadores.filter(j => j.ativo);
+
+  // Contagem por posição × tipo
+  const contagem = {}; // { posicao: { mensalista: N, avulso: N } }
+  let semPosicao = { mensalista: 0, avulso: 0 };
+
+  ativos.forEach(j => {
+    const posicoes = (j.posicao || '').split(',').map(p => p.trim()).filter(Boolean);
+    if (posicoes.length === 0) {
+      semPosicao[j.tipo] = (semPosicao[j.tipo] || 0) + 1;
+    } else {
+      posicoes.forEach(pos => {
+        if (!contagem[pos]) contagem[pos] = { mensalista: 0, avulso: 0 };
+        contagem[pos][j.tipo] = (contagem[pos][j.tipo] || 0) + 1;
+      });
+    }
+  });
+
+  // Total geral
+  const totalMens = ativos.filter(j => j.tipo === 'mensalista').length;
+  const totalAvul = ativos.filter(j => j.tipo === 'avulso').length;
+
+  let html = `<div class="row g-2 mb-2">
+    <div class="col-auto">
+      <div class="card px-3 py-2 text-center" style="min-width:90px">
+        <div class="fw-bold fs-5">${totalMens + totalAvul}</div>
+        <div class="text-muted small">Total ativos</div>
+        <div class="mt-1">
+          <span class="badge badge-mensalista">${totalMens} mens.</span>
+          <span class="badge badge-avulso ms-1">${totalAvul} avul.</span>
+        </div>
+      </div>
+    </div>`;
+
+  // Cards por posição (apenas as que têm ao menos 1 jogador)
+  const posicoesComJogadores = POSICOES.filter(p => contagem[p]);
+  posicoesComJogadores.forEach(pos => {
+    const c = contagem[pos];
+    const tot = (c.mensalista || 0) + (c.avulso || 0);
+    html += `<div class="col-auto">
+      <div class="card px-3 py-2 text-center" style="min-width:90px">
+        <div class="fw-bold fs-5">${tot}</div>
+        <div class="text-muted small">${pos}</div>
+        <div class="mt-1">
+          ${c.mensalista ? `<span class="badge badge-mensalista">${c.mensalista}</span>` : ''}
+          ${c.avulso    ? `<span class="badge badge-avulso ms-1">${c.avulso}</span>` : ''}
+        </div>
+      </div>
+    </div>`;
+  });
+
+  // Sem posição
+  const totSem = semPosicao.mensalista + semPosicao.avulso;
+  if (totSem > 0) {
+    html += `<div class="col-auto">
+      <div class="card px-3 py-2 text-center border-dashed" style="min-width:90px;border-style:dashed!important">
+        <div class="fw-bold fs-5 text-muted">${totSem}</div>
+        <div class="text-muted small">Sem posição</div>
+        <div class="mt-1">
+          ${semPosicao.mensalista ? `<span class="badge badge-mensalista">${semPosicao.mensalista}</span>` : ''}
+          ${semPosicao.avulso    ? `<span class="badge badge-avulso ms-1">${semPosicao.avulso}</span>` : ''}
+        </div>
+      </div>
+    </div>`;
+  }
+
+  html += `</div>`;
+  document.getElementById('painel-posicoes').innerHTML = html;
+}
+
 function renderJogadores() {
+  renderPainelPosicoes();
+
   const lista = filtroJogadores === 'todos'
     ? todosJogadores
     : todosJogadores.filter(j => j.tipo === filtroJogadores);

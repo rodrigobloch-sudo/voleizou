@@ -474,10 +474,11 @@
   <div class="modal-dialog">
     <div class="modal-content">
       <div class="modal-header">
-        <h5 class="modal-title">Novo jogo</h5>
+        <h5 class="modal-title" id="modalJogoTitulo">Novo jogo</h5>
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
       <div class="modal-body">
+        <input type="hidden" id="jogo-id" />
         <div class="mb-3">
           <label class="form-label">Data *</label>
           <input type="date" class="form-control" id="jogo-data" />
@@ -1064,10 +1065,16 @@ function renderJogos() {
             ${j.categoria ? `<span class="badge ${catColor} me-2 mb-1">${j.categoria}</span>` : ''}
             ${j.observacao ? `<small class="text-muted">${j.observacao}</small>` : ''}
           </div>
-          <div class="d-flex align-items-center gap-2">
+          <div class="d-flex align-items-center gap-2 flex-wrap">
             <span class="badge bg-secondary">${totalParticipantes} jogadores</span>
             <button class="btn btn-sm btn-outline-primary" onclick="abrirAvulsos(${j.id}, '${j.data}')">
               <i class="bi bi-person-plus me-1"></i>Avulsos
+            </button>
+            <button class="btn btn-sm btn-outline-secondary" onclick="editarJogo(${j.id})">
+              <i class="bi bi-pencil"></i>
+            </button>
+            <button class="btn btn-sm btn-outline-danger" onclick="excluirJogo(${j.id}, '${fmtDate(j.data)}')">
+              <i class="bi bi-trash"></i>
             </button>
           </div>
         </div>
@@ -1081,23 +1088,52 @@ function renderJogos() {
 }
 
 function abrirModalJogo() {
+  document.getElementById('jogo-id').value = '';
   document.getElementById('jogo-data').value = today();
   document.getElementById('jogo-categoria').value = '';
   document.getElementById('jogo-obs').value = '';
+  document.getElementById('modalJogoTitulo').textContent = 'Novo jogo';
+  new bootstrap.Modal('#modalJogo').show();
+}
+
+function editarJogo(id) {
+  const j = todosJogos.find(x => x.id === id);
+  if (!j) return;
+  document.getElementById('jogo-id').value = j.id;
+  document.getElementById('jogo-data').value = j.data;
+  document.getElementById('jogo-categoria').value = j.categoria || '';
+  document.getElementById('jogo-obs').value = j.observacao || '';
+  document.getElementById('modalJogoTitulo').textContent = 'Editar jogo';
   new bootstrap.Modal('#modalJogo').show();
 }
 
 async function salvarJogo() {
+  const id = document.getElementById('jogo-id').value;
   const data = document.getElementById('jogo-data').value;
   if (!data) { toast('Data é obrigatória', 'warning'); return; }
+  const payload = {
+    data,
+    categoria: document.getElementById('jogo-categoria').value || null,
+    observacao: document.getElementById('jogo-obs').value || null,
+  };
   try {
-    await api('POST', '/api/jogos', {
-      data,
-      categoria: document.getElementById('jogo-categoria').value || null,
-      observacao: document.getElementById('jogo-obs').value || null,
-    });
-    toast('Jogo registrado!');
+    if (id) {
+      await api('PUT', `/api/jogos/${id}`, payload);
+      toast('Jogo atualizado!');
+    } else {
+      await api('POST', '/api/jogos', payload);
+      toast('Jogo registrado!');
+    }
     bootstrap.Modal.getInstance('#modalJogo').hide();
+    carregarJogos();
+  } catch(e) { toast(e.message, 'danger'); }
+}
+
+async function excluirJogo(id, dataFmt) {
+  if (!confirm(`Excluir o jogo de ${dataFmt}? As participações de avulsos também serão removidas.`)) return;
+  try {
+    await api('DELETE', `/api/jogos/${id}`);
+    toast('Jogo excluído');
     carregarJogos();
   } catch(e) { toast(e.message, 'danger'); }
 }

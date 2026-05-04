@@ -249,6 +249,26 @@ def obter_jogo(jogo_id: int, db: Session = Depends(get_db)):
     ]
     return {"id": jogo.id, "data": jogo.data.isoformat(), "categoria": jogo.categoria, "observacao": jogo.observacao, "avulsos": avulsos}
 
+@app.put("/api/jogos/{jogo_id}")
+def atualizar_jogo(jogo_id: int, data: JogoCreate, db: Session = Depends(get_db)):
+    jogo = db.query(models.Jogo).filter(models.Jogo.id == jogo_id).first()
+    if not jogo:
+        raise HTTPException(404, "Jogo não encontrado")
+    jogo.data = data.data
+    jogo.categoria = data.categoria
+    jogo.observacao = data.observacao
+    db.commit()
+    return {"id": jogo.id, "data": jogo.data.isoformat(), "categoria": jogo.categoria, "observacao": jogo.observacao}
+
+@app.delete("/api/jogos/{jogo_id}")
+def deletar_jogo(jogo_id: int, db: Session = Depends(get_db)):
+    jogo = db.query(models.Jogo).filter(models.Jogo.id == jogo_id).first()
+    if not jogo:
+        raise HTTPException(404, "Jogo não encontrado")
+    db.delete(jogo)
+    db.commit()
+    return {"ok": True}
+
 @app.post("/api/jogos/{jogo_id}/participacoes", status_code=201)
 def adicionar_avulso(jogo_id: int, data: ParticipacaoCreate, db: Session = Depends(get_db)):
     jogo = db.query(models.Jogo).filter(models.Jogo.id == jogo_id).first()

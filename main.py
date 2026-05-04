@@ -565,6 +565,12 @@ def servir_comprovante(arquivo_id: int, db: Session = Depends(get_db)):
 
 @app.get("/api/config/ip")
 def get_ip():
+    # Se houver uma URL pública configurada (produção), usa ela
+    public_url = os.getenv("PUBLIC_URL")
+    if public_url:
+        return {"ip": None, "porta": None, "hostname": None, "scheme": "https", "public_url": public_url}
+
+    # Ambiente local: detecta IP e hostname
     try:
         hostname = subprocess.check_output(
             ["scutil", "--get", "LocalHostName"], text=True
@@ -572,7 +578,7 @@ def get_ip():
         local_hostname = f"{hostname}.local"
     except:
         local_hostname = None
-    return {"ip": get_local_ip(), "porta": 8000, "hostname": local_hostname, "scheme": "https"}
+    return {"ip": get_local_ip(), "porta": 8000, "hostname": local_hostname, "scheme": "https", "public_url": None}
 
 @app.get("/instalar-certificado")
 def pagina_certificado():

@@ -1111,28 +1111,29 @@ async function salvarPagamentoComprovante() {
 }
 
 // ── IP local e WhatsApp ───────────────────────────────────────────────────────
-let ipLocal = 'localhost';
-let portaLocal = 8000;
-let hostnameLocal = null; // ex: MacBook-Air-de-Rodrigo.local
+let baseUrl = 'http://localhost:8000'; // atualizado pelo carregarIP()
 
 async function carregarIP() {
   try {
     const d = await api('GET', '/api/config/ip');
-    ipLocal = d.ip;
-    portaLocal = d.porta;
-    hostnameLocal = d.hostname || null;
-    document.getElementById('link-base').textContent = `http://${ipLocal}:${portaLocal}/pagar/ID`;
+    if (d.public_url) {
+      // Produção: usa URL pública fixa
+      baseUrl = d.public_url.replace(/\/$/, '');
+    } else {
+      // Local: usa hostname.local ou IP
+      const host = d.hostname || d.ip;
+      baseUrl = `https://${host}:${d.porta}`;
+    }
+    document.getElementById('link-base').textContent = `${baseUrl}/pagar/ID`;
   } catch(e) {}
 }
 
 function linkPagamento(jogadorId) {
-  return `http://${ipLocal}:${portaLocal}/pagar/${jogadorId}`;
+  return `${baseUrl}/pagar/${jogadorId}`;
 }
 
 function linkPagamentoWpp(jogadorId) {
-  // Usa hostname.local + https para o WhatsApp reconhecer como link clicável
-  const host = hostnameLocal || ipLocal;
-  return `https://${host}:${portaLocal}/pagar/${jogadorId}`;
+  return `${baseUrl}/pagar/${jogadorId}`;
 }
 
 function enviarWhatsApp(jogadorId, nomeJogador, telefone) {

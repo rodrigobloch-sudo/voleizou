@@ -195,6 +195,14 @@ def me(request: Request):
 
 # ── Gerenciamento de usuários ─────────────────────────────────────────────────
 
+class UsuarioCreate(BaseModel):
+    nome: str
+    usuario: str
+    senha: str
+
+class SenhaUpdate(BaseModel):
+    senha_nova: str
+
 @app.get("/api/usuarios")
 def listar_usuarios(db: Session = Depends(get_db)):
     return [
@@ -240,14 +248,6 @@ def deletar_usuario(usuario_id: int, db: Session = Depends(get_db)):
 
 
 # ── Schemas ───────────────────────────────────────────────────────────────────
-
-class UsuarioCreate(BaseModel):
-    nome: str
-    usuario: str
-    senha: str
-
-class SenhaUpdate(BaseModel):
-    senha_nova: str
 
 class JogadorCreate(BaseModel):
     nome: str

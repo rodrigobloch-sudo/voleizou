@@ -1,18 +1,58 @@
-from fastapi import FastAPI, HTTPException, Depends, UploadFile, File, Form
+from fastapi import FastAPI, HTTPException, Depends, UploadFile, File, Form, Request
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import FileResponse, Response, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware
 from sqlalchemy.orm import Session
 from sqlalchemy import extract
 from pydantic import BaseModel
 from typing import Optional, List
 from datetime import date, datetime
-import models
+import models, hmac, hashlib
 from leitor_comprovante import ler_comprovante
-from database import engine, get_db
+from database import engine, get_db, is_sqlite
 import os, socket, subprocess
 
 models.Base.metadata.create_all(bind=engine)
+
+# ── Autenticação ──────────────────────────────────────────────────────────────
+
+SECRET_KEY   = os.getenv("SECRET_KEY",    "volei-dev-secret-2024")
+ADMIN_USER   = os.getenv("ADMIN_USER",    "admin")
+ADMIN_PASS   = os.getenv("ADMIN_PASSWORD","volei123")
+
+def _criar_token(usuario: str) -> str:
+    payload = f"{usuario}:{date.today().toordinal()}"
+    sig = hmac.new(SECRET_KEY.encode(), payload.encode(), hashlib.sha256).hexdigest()
+    return f"{payload}.{sig}"
+
+def _verificar_token(token: str, max_dias: int = 30) -> bool:
+    try:
+        payload, sig = token.rsplit(".", 1)
+        expected = hmac.new(SECRET_KEY.encode(), payload.encode(), hashlib.sha256).hexdigest()
+        if not hmac.compare_digest(sig, expected):
+            return False
+        ordinal = int(payload.rsplit(":", 1)[1])
+        return 0 <= (date.today().toordinal() - ordinal) <= max_dias
+    except Exception:
+        return False
+
+_PUBLICOS_EXATOS   = {"/", "/api/login", "/api/logout", "/api/me",
+                      "/api/comprovante/enviar", "/instalar-certificado", "/voleizou.crt"}
+_PUBLICOS_PREFIXO  = ("/static/", "/pagar/")
+_PUBLICOS_SUFIXO   = ("/info-pagamento",)
+
+class AuthMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        path = request.url.path
+        if (path in _PUBLICOS_EXATOS
+                or any(path.startswith(p) for p in _PUBLICOS_PREFIXO)
+                or any(path.endswith(s) for s in _PUBLICOS_SUFIXO)):
+            return await call_next(request)
+        token = request.cookies.get("volei_sessao", "")
+        if not _verificar_token(token):
+            return JSONResponse({"detail": "Não autorizado"}, status_code=401)
+        return await call_next(request)
 
 # ── Migrações automáticas (adiciona colunas novas sem recriar tabelas) ────────
 def _migrar():
@@ -86,11 +126,13 @@ def get_local_ip():
 
 app = FastAPI(title="Volei App")
 
+app.add_middleware(AuthMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
     allow_methods=["*"],
     allow_headers=["*"],
+    allow_credentials=True,
 )
 
 app.mount("/static", StaticFiles(directory="static"), name="static")
@@ -98,6 +140,40 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 @app.get("/")
 def root():
     return FileResponse("static/index.html")
+
+
+# ── Login / Logout / Me ───────────────────────────────────────────────────────
+
+class LoginData(BaseModel):
+    usuario: str
+    senha: str
+
+@app.post("/api/login")
+def login(data: LoginData, response: Response):
+    if data.usuario != ADMIN_USER or data.senha != ADMIN_PASS:
+        raise HTTPException(401, "Usuário ou senha incorretos")
+    token = _criar_token(data.usuario)
+    response.set_cookie(
+        key="volei_sessao",
+        value=token,
+        httponly=True,
+        samesite="lax",
+        max_age=30 * 24 * 3600,
+        secure=not is_sqlite,   # Secure=True em produção (HTTPS), False local (HTTP)
+    )
+    return {"ok": True}
+
+@app.post("/api/logout")
+def logout(response: Response):
+    response.delete_cookie("volei_sessao", samesite="lax")
+    return {"ok": True}
+
+@app.get("/api/me")
+def me(request: Request):
+    token = request.cookies.get("volei_sessao", "")
+    if not _verificar_token(token):
+        raise HTTPException(401, "Não autenticado")
+    return {"ok": True}
 
 
 # ── Schemas ───────────────────────────────────────────────────────────────────

@@ -88,6 +88,22 @@
     .dot-red { background: #ef4444; }
     .dot-yellow { background: #f59e0b; }
 
+    /* ── Login overlay ── */
+    #login-overlay {
+      position: fixed; inset: 0; background: #0f172a;
+      display: flex; align-items: center; justify-content: center;
+      z-index: 9999;
+    }
+    #login-overlay.d-none { display: none !important; }
+    #login-card {
+      background: #fff; border-radius: 20px; padding: 40px 36px;
+      width: 100%; max-width: 380px; box-shadow: 0 8px 40px rgba(0,0,0,.4);
+    }
+    #login-card .logo-wrap { text-align: center; margin-bottom: 28px; }
+    #login-card .logo-wrap img { width: 64px; height: 64px; object-fit: contain; }
+    #login-card .logo-wrap h4 { margin-top: 10px; font-weight: 700; color: #1e293b; }
+    #login-card .logo-wrap small { color: #64748b; }
+
     /* ── Mobile ── */
     @media (max-width: 768px) {
       #sidebar { transform: translateX(-100%); }
@@ -101,6 +117,31 @@
   </style>
 </head>
 <body>
+
+<!-- ── Login overlay ── -->
+<div id="login-overlay">
+  <div id="login-card">
+    <div class="logo-wrap">
+      <img src="/static/logo.png" alt="Voleizou" />
+      <h4>Voleizou</h4>
+      <small>Acesso restrito</small>
+    </div>
+    <div id="login-erro" class="alert alert-danger d-none py-2 small mb-3"></div>
+    <div class="mb-3">
+      <label class="form-label fw-semibold">Usuário</label>
+      <input type="text" id="login-usuario" class="form-control" placeholder="admin"
+             onkeydown="if(event.key==='Enter') fazerLogin()" autocomplete="username" />
+    </div>
+    <div class="mb-4">
+      <label class="form-label fw-semibold">Senha</label>
+      <input type="password" id="login-senha" class="form-control" placeholder="••••••••"
+             onkeydown="if(event.key==='Enter') fazerLogin()" autocomplete="current-password" />
+    </div>
+    <button class="btn btn-primary w-100 btn-lg fw-bold" onclick="fazerLogin()" id="btn-login">
+      <i class="bi bi-box-arrow-in-right me-2"></i>Entrar
+    </button>
+  </div>
+</div>
 
 <!-- Top bar (mobile) -->
 <div id="topbar">
@@ -128,6 +169,12 @@
     <a href="#" data-page="caixa"><i class="bi bi-safe2"></i> Caixa Geral</a>
     <a href="#" data-page="pendentes"><i class="bi bi-hourglass-split"></i> Pendentes <span id="badge-pendentes" class="badge bg-danger ms-1 d-none"></span></a>
   </nav>
+  <div style="padding: 12px 16px; border-top: 1px solid #334155;">
+    <button class="btn btn-sm w-100 text-start" style="color:#94a3b8; background:none; border:none;"
+            onclick="fazerLogout()">
+      <i class="bi bi-box-arrow-left me-2"></i>Sair
+    </button>
+  </div>
 </div>
 
 <!-- Main -->
@@ -2128,11 +2175,69 @@ function cobrancaAvancar(contou) {
   cobrancaRenderCard();
 }
 
+// ── Autenticação ─────────────────────────────────────────────────────────────
+async function fazerLogin() {
+  const usuario = document.getElementById('login-usuario').value.trim();
+  const senha   = document.getElementById('login-senha').value;
+  const erro    = document.getElementById('login-erro');
+  const btn     = document.getElementById('btn-login');
+  if (!usuario || !senha) { erro.textContent = 'Preencha usuário e senha.'; erro.classList.remove('d-none'); return; }
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Entrando...';
+  try {
+    const res = await fetch('/api/login', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({usuario, senha}),
+      credentials: 'include',
+    });
+    if (!res.ok) {
+      const d = await res.json().catch(() => ({}));
+      erro.textContent = d.detail || 'Usuário ou senha incorretos.';
+      erro.classList.remove('d-none');
+      btn.disabled = false;
+      btn.innerHTML = '<i class="bi bi-box-arrow-in-right me-2"></i>Entrar';
+      return;
+    }
+    document.getElementById('login-overlay').classList.add('d-none');
+    iniciarApp();
+  } catch(e) {
+    erro.textContent = 'Erro de conexão. Tente novamente.';
+    erro.classList.remove('d-none');
+    btn.disabled = false;
+    btn.innerHTML = '<i class="bi bi-box-arrow-in-right me-2"></i>Entrar';
+  }
+}
+
+async function fazerLogout() {
+  await fetch('/api/logout', {method: 'POST', credentials: 'include'});
+  document.getElementById('login-overlay').classList.remove('d-none');
+  document.getElementById('login-senha').value = '';
+  document.getElementById('login-erro').classList.add('d-none');
+  document.getElementById('btn-login').disabled = false;
+  document.getElementById('btn-login').innerHTML = '<i class="bi bi-box-arrow-in-right me-2"></i>Entrar';
+}
+
+function iniciarApp() {
+  carregarDashboard();
+  carregarIP();
+  carregarPendentes();
+  setInterval(() => carregarPendentes(), 30000);
+}
+
 // ── Init ─────────────────────────────────────────────────────────────────────
-carregarDashboard();
-carregarIP();
-carregarPendentes();
-setInterval(() => carregarPendentes(), 30000);
+(async function() {
+  try {
+    const res = await fetch('/api/me', {credentials: 'include'});
+    if (res.ok) {
+      document.getElementById('login-overlay').classList.add('d-none');
+      iniciarApp();
+    }
+    // Se 401, o overlay já está visível — não faz nada
+  } catch(e) {
+    // Erro de rede: mantém overlay visível
+  }
+})();
 </script>
 </body>
 </html>

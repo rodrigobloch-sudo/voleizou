@@ -172,10 +172,25 @@ def listar_jogadores(tipo: Optional[str] = None, db: Session = Depends(get_db)):
         for j in jogadores
     ]
 
+def _checar_camisa(db, numero: int, excluir_id: int = None):
+    """Lança 400 se a camisa já está em uso por outro jogador ativo."""
+    if numero is None:
+        return
+    q = db.query(models.Jogador).filter(
+        models.Jogador.numero_camisa == numero,
+        models.Jogador.ativo == True,
+    )
+    if excluir_id:
+        q = q.filter(models.Jogador.id != excluir_id)
+    dono = q.first()
+    if dono:
+        raise HTTPException(400, f"Camisa #{numero} já está em uso por {dono.nome}")
+
 @app.post("/api/jogadores", status_code=201)
 def criar_jogador(data: JogadorCreate, db: Session = Depends(get_db)):
     if data.tipo not in ("mensalista", "avulso"):
         raise HTTPException(400, "tipo deve ser 'mensalista' ou 'avulso'")
+    _checar_camisa(db, data.numero_camisa)
     j = models.Jogador(**data.model_dump())
     db.add(j)
     db.commit()
@@ -190,6 +205,7 @@ def atualizar_jogador(jogador_id: int, data: JogadorUpdate, db: Session = Depend
     j = db.query(models.Jogador).filter(models.Jogador.id == jogador_id).first()
     if not j:
         raise HTTPException(404, "Jogador não encontrado")
+    _checar_camisa(db, data.numero_camisa, excluir_id=jogador_id)
     for field, value in data.model_dump(exclude_none=True).items():
         setattr(j, field, value)
     db.commit()

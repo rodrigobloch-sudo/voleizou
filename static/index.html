@@ -1197,26 +1197,26 @@ function linkPagamentoWpp(jogadorId) {
   return `${baseUrl}/pagar/${jogadorId}`;
 }
 
-function enviarWhatsApp(jogadorId, nomeJogador, telefone, tipo) {
+async function enviarWhatsApp(jogadorId, nomeJogador, telefone, tipo) {
   const link = linkPagamentoWpp(jogadorId);
   const agora = new Date();
   const mes = MESES[agora.getMonth() + 1];
   const ano = agora.getFullYear();
-  const dia = String(agora.getDate()).padStart(2, '0');
-  const mesNum = String(agora.getMonth() + 1).padStart(2, '0');
-  const dataJogo = `${dia}/${mesNum}/${ano}`;
+  const volei = '\uD83C\uDFD0';
 
   let msg;
   if (tipo === 'avulso') {
-    let dataJogoFmt = dataJogo; // fallback: hoje
-    if (ultimoJogoData) {
-      const [anoJ, mesJ, diaJ] = ultimoJogoData.split('-');
-      dataJogoFmt = `${diaJ}/${mesJ}/${anoJ}`;
-    }
-    const volei = '\uD83C\uDFD0';
+    // Busca a data do último jogo direto da API
+    let dataJogoFmt = `${String(agora.getDate()).padStart(2,'0')}/${String(agora.getMonth()+1).padStart(2,'0')}/${ano}`;
+    try {
+      const jogos = await api('GET', '/api/jogos');
+      if (jogos.length > 0) {
+        const [anoJ, mesJ, diaJ] = jogos[0].data.split('-');
+        dataJogoFmt = `${diaJ}/${mesJ}/${anoJ}`;
+      }
+    } catch(e) {}
     msg = `Olá ${nomeJogador}! \n\nAqui é da equipe do Voleizou! ${volei}${volei}${volei}${volei}\n\nSegue o link para enviar seu comprovante de pagamento referente ao jogo do dia *${dataJogoFmt}*:\n\n${link}\n\nObrigado!`;
   } else {
-    const volei = '\uD83C\uDFD0';
     msg = `Olá ${nomeJogador}! \n\nAqui é da equipe do Voleizou! ${volei}${volei}${volei}${volei}\n\nSegue o link para enviar seu comprovante de pagamento referente a *${mes} ${ano}*:\n\n${link}\n\nObrigado!`;
   }
 

@@ -1111,21 +1111,11 @@ async function salvarPagamentoComprovante() {
 }
 
 // ── IP local e WhatsApp ───────────────────────────────────────────────────────
-let baseUrl = 'http://localhost:8000'; // atualizado pelo carregarIP()
+// Usa sempre a origem do próprio site — funciona local e em produção automaticamente
+const baseUrl = window.location.origin;
 
 async function carregarIP() {
-  try {
-    const d = await api('GET', '/api/config/ip');
-    if (d.public_url) {
-      // Produção: usa URL pública fixa
-      baseUrl = d.public_url.replace(/\/$/, '');
-    } else {
-      // Local: usa hostname.local ou IP
-      const host = d.hostname || d.ip;
-      baseUrl = `https://${host}:${d.porta}`;
-    }
-    document.getElementById('link-base').textContent = `${baseUrl}/pagar/ID`;
-  } catch(e) {}
+  document.getElementById('link-base').textContent = `${baseUrl}/pagar/ID`;
 }
 
 function linkPagamento(jogadorId) {

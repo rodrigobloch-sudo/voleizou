@@ -13,68 +13,105 @@
       --sidebar-bg: #1e293b;
       --sidebar-text: #94a3b8;
       --sidebar-active: #fff;
+      --topbar-h: 56px;
     }
     body { margin: 0; font-family: 'Segoe UI', sans-serif; background: #f1f5f9; }
 
-    /* Sidebar */
+    /* ── Sidebar (desktop) ── */
     #sidebar {
       position: fixed; top: 0; left: 0; bottom: 0;
       width: var(--sidebar-w); background: var(--sidebar-bg);
-      display: flex; flex-direction: column; z-index: 100;
+      display: flex; flex-direction: column; z-index: 200;
+      transition: transform 0.25s ease;
     }
     #sidebar .logo {
-      padding: 16px 20px;
-      border-bottom: 1px solid #334155;
+      padding: 16px 20px; border-bottom: 1px solid #334155;
       display: flex; align-items: center; gap: 10px;
     }
     #sidebar .logo img { width: 36px; height: 36px; object-fit: contain; }
     #sidebar .logo span { font-size: 1.2rem; font-weight: 700; color: #fff; letter-spacing: .5px; }
-    #sidebar nav { flex: 1; padding: 12px 0; }
+    #sidebar nav { flex: 1; padding: 12px 0; overflow-y: auto; }
     #sidebar nav a {
       display: flex; align-items: center; gap: 10px;
-      padding: 10px 20px; color: var(--sidebar-text);
+      padding: 12px 20px; color: var(--sidebar-text);
       text-decoration: none; font-size: 0.9rem;
-      border-left: 3px solid transparent;
-      transition: all 0.15s;
+      border-left: 3px solid transparent; transition: all 0.15s;
     }
     #sidebar nav a:hover { color: #fff; background: #334155; }
-    #sidebar nav a.active {
-      color: var(--sidebar-active); border-left-color: var(--primary);
-      background: #334155;
-    }
+    #sidebar nav a.active { color: var(--sidebar-active); border-left-color: var(--primary); background: #334155; }
     #sidebar nav a i { font-size: 1.1rem; }
 
-    /* Main */
+    /* ── Overlay (mobile) ── */
+    #sidebar-overlay {
+      display: none; position: fixed; inset: 0;
+      background: rgba(0,0,0,.5); z-index: 199;
+    }
+    #sidebar-overlay.show { display: block; }
+
+    /* ── Top bar (mobile) ── */
+    #topbar {
+      display: none; position: fixed; top: 0; left: 0; right: 0;
+      height: var(--topbar-h); background: var(--sidebar-bg);
+      align-items: center; padding: 0 16px; z-index: 198;
+      gap: 12px;
+    }
+    #topbar img { width: 28px; height: 28px; object-fit: contain; }
+    #topbar span { color: #fff; font-weight: 700; font-size: 1rem; flex: 1; }
+    #btn-menu { background: none; border: none; color: #fff; font-size: 1.4rem; padding: 4px; cursor: pointer; }
+
+    /* ── Main ── */
     #main { margin-left: var(--sidebar-w); padding: 28px; min-height: 100vh; }
     .page { display: none; }
     .page.active { display: block; }
 
-    /* Cards */
+    /* ── Cards ── */
     .card { border: none; border-radius: 12px; box-shadow: 0 1px 4px rgba(0,0,0,.08); }
     .stat-card { border-radius: 12px; padding: 20px; color: #fff; }
     .stat-card .value { font-size: 1.8rem; font-weight: 700; }
     .stat-card .label { font-size: 0.85rem; opacity: .85; }
 
-    /* Badges */
+    /* ── Badges ── */
     .badge-mensalista { background: #dbeafe; color: #1d4ed8; }
     .badge-avulso { background: #fef3c7; color: #92400e; }
 
-    /* Table */
+    /* ── Table ── */
     .table th { font-size: 0.8rem; text-transform: uppercase; color: #64748b; font-weight: 600; }
     .table td { vertical-align: middle; }
 
-    /* Month nav */
+    /* ── Month nav ── */
     .month-nav { display: flex; align-items: center; gap: 12px; }
     .month-nav h5 { margin: 0; font-weight: 600; }
 
-    /* Status dots */
+    /* ── Status dots ── */
     .dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
     .dot-green { background: #22c55e; }
     .dot-red { background: #ef4444; }
     .dot-yellow { background: #f59e0b; }
+
+    /* ── Mobile ── */
+    @media (max-width: 768px) {
+      #sidebar { transform: translateX(-100%); }
+      #sidebar.open { transform: translateX(0); }
+      #topbar { display: flex; }
+      #main { margin-left: 0; padding: 16px; padding-top: calc(var(--topbar-h) + 16px); }
+      .stat-card .value { font-size: 1.3rem; }
+      .stat-card { padding: 14px; }
+      h5.fw-bold { font-size: 1rem; }
+    }
   </style>
 </head>
 <body>
+
+<!-- Top bar (mobile) -->
+<div id="topbar">
+  <button id="btn-menu" onclick="toggleSidebar()"><i class="bi bi-list"></i></button>
+  <img src="/static/logo.png" alt="Voleizou" />
+  <span>Voleizou</span>
+  <span id="badge-pendentes-top" class="badge bg-danger d-none"></span>
+</div>
+
+<!-- Overlay (mobile) -->
+<div id="sidebar-overlay" onclick="toggleSidebar()"></div>
 
 <!-- Sidebar -->
 <div id="sidebar">
@@ -162,7 +199,7 @@
           <button class="btn btn-sm btn-outline-secondary" id="filtro-mensalista" onclick="filtrarJogadores('mensalista')">Mensalistas</button>
           <button class="btn btn-sm btn-outline-secondary" id="filtro-avulso" onclick="filtrarJogadores('avulso')">Avulsos</button>
         </div>
-        <table class="table table-hover mb-0">
+        <div class="table-responsive"><table class="table table-hover mb-0">
           <thead><tr>
             <th class="ps-3">Nome</th>
             <th>Tipo</th>
@@ -171,7 +208,7 @@
             <th></th>
           </tr></thead>
           <tbody id="tabela-jogadores"></tbody>
-        </table>
+        </table></div>
         <div class="p-3 border-top text-muted small">
           <i class="bi bi-info-circle me-1"></i>Link base para pagamento:
           <span id="link-base" class="fw-bold text-primary">carregando...</span>
@@ -235,7 +272,7 @@
             <option value="2027">2027</option>
           </select>
         </div>
-        <table class="table table-hover mb-0">
+        <div class="table-responsive"><table class="table table-hover mb-0">
           <thead><tr>
             <th class="ps-3">Data</th>
             <th>Jogador</th>
@@ -246,7 +283,7 @@
             <th></th>
           </tr></thead>
           <tbody id="tabela-pagamentos"></tbody>
-        </table>
+        </table></div>
       </div>
     </div>
   </div>
@@ -276,7 +313,7 @@
             <option value="2027">2027</option>
           </select>
         </div>
-        <table class="table table-hover mb-0">
+        <div class="table-responsive"><table class="table table-hover mb-0">
           <thead><tr>
             <th class="ps-3">Data</th>
             <th>Descrição</th>
@@ -286,7 +323,7 @@
             <th></th>
           </tr></thead>
           <tbody id="tabela-saidas"></tbody>
-        </table>
+        </table></div>
       </div>
     </div>
   </div>
@@ -324,7 +361,7 @@
     <div class="card">
       <div class="card-body p-0">
         <h6 class="fw-bold p-3 mb-0 border-bottom">Histórico mensal</h6>
-        <table class="table table-hover mb-0">
+        <div class="table-responsive"><table class="table table-hover mb-0">
           <thead><tr>
             <th class="ps-3">Mês</th>
             <th>Entradas</th>
@@ -332,7 +369,7 @@
             <th>Saldo</th>
           </tr></thead>
           <tbody id="tabela-caixa"></tbody>
-        </table>
+        </table></div>
       </div>
     </div>
   </div>
@@ -1326,10 +1363,39 @@ async function rejeitarPendente(id) {
   } catch(e) { toast(e.message, 'danger'); }
 }
 
+// ── Menu hamburguer (mobile) ──────────────────────────────────────────────────
+function toggleSidebar() {
+  document.getElementById('sidebar').classList.toggle('open');
+  document.getElementById('sidebar-overlay').classList.toggle('show');
+}
+
+// Fecha sidebar ao clicar em item do menu (mobile)
+document.querySelectorAll('#sidebar nav a').forEach(link => {
+  link.addEventListener('click', () => {
+    if (window.innerWidth <= 768) {
+      document.getElementById('sidebar').classList.remove('open');
+      document.getElementById('sidebar-overlay').classList.remove('show');
+    }
+  });
+});
+
+// Sincroniza badge de pendentes na topbar
+const _origCarregarPendentes = carregarPendentes;
+carregarPendentes = async function() {
+  await _origCarregarPendentes();
+  const badge = document.getElementById('badge-pendentes');
+  const badgeTop = document.getElementById('badge-pendentes-top');
+  if (badge && badgeTop) {
+    badgeTop.textContent = badge.textContent;
+    badgeTop.className = badge.className.replace('ms-1', '');
+  }
+};
+
 // ── Init ─────────────────────────────────────────────────────────────────────
 carregarDashboard();
 carregarIP();
-setInterval(() => carregarPendentes(), 30000); // Verifica pendentes a cada 30s
+carregarPendentes();
+setInterval(() => carregarPendentes(), 30000);
 </script>
 </body>
 </html>

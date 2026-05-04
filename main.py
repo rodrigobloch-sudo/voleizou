@@ -228,7 +228,7 @@ def desativar_jogador(jogador_id: int, db: Session = Depends(get_db)):
 
 @app.get("/api/jogos")
 def listar_jogos(db: Session = Depends(get_db)):
-    jogos = db.query(models.Jogo).order_by(models.Jogo.data.desc()).all()
+    jogos = db.query(models.Jogo).order_by(models.Jogo.data.asc()).all()
     result = []
     for jogo in jogos:
         avulsos = [

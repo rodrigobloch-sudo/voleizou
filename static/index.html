@@ -1103,55 +1103,85 @@ async function carregarJogos() {
   } catch(e) { toast(e.message, 'danger'); }
 }
 
+function renderCardJogo(j) {
+  const ausentes = j.mensalistas_ausentes || [];
+  const mensalistasPresentes = mensalistasAtivos.filter(m => !ausentes.includes(m.id));
+  const totalParticipantes = mensalistasPresentes.length + j.avulsos.length;
+  const mensalistasBadges = mensalistasAtivos.map(m =>
+    ausentes.includes(m.id)
+      ? `<span class="badge me-1 mb-1" style="background:#e2e8f0;color:#94a3b8;text-decoration:line-through">${m.nome}</span>`
+      : `<span class="badge badge-mensalista me-1 mb-1">${m.nome}</span>`
+  ).join('');
+  const avulsosBadges = j.avulsos.map(a =>
+    `<span class="badge badge-avulso me-1 mb-1">${a.nome}</span>`
+  ).join('');
+  const catColor = j.categoria === 'Liga Semestral/Anual' ? 'bg-danger'
+    : j.categoria === 'Torneios Diversos' ? 'bg-warning text-dark'
+    : j.categoria === 'Amistoso' ? 'bg-success'
+    : 'bg-primary';
+  return `
+  <div class="card mb-3">
+    <div class="card-body">
+      <div class="d-flex justify-content-between align-items-start">
+        <div>
+          <h6 class="mb-1 fw-bold"><i class="bi bi-calendar-event me-2 text-primary"></i>${fmtDate(j.data)}</h6>
+          ${j.categoria ? `<span class="badge ${catColor} me-2 mb-1">${j.categoria}</span>` : ''}
+          ${j.observacao ? `<small class="text-muted">${j.observacao}</small>` : ''}
+        </div>
+        <div class="d-flex align-items-center gap-2 flex-wrap">
+          <span class="badge bg-secondary">${totalParticipantes} jogadores</span>
+          <button class="btn btn-sm btn-outline-primary" onclick="editarJogadores(${j.id}, '${j.data}')">
+            <i class="bi bi-people me-1"></i>Jogadores
+          </button>
+          <button class="btn btn-sm btn-outline-secondary" onclick="editarJogo(${j.id})">
+            <i class="bi bi-pencil"></i>
+          </button>
+          <button class="btn btn-sm btn-outline-danger" onclick="excluirJogo(${j.id}, '${fmtDate(j.data)}')">
+            <i class="bi bi-trash"></i>
+          </button>
+        </div>
+      </div>
+      <div class="mt-2">
+        ${mensalistasBadges}${avulsosBadges}
+        ${totalParticipantes === 0 ? '<span class="text-muted small">Nenhum participante</span>' : ''}
+      </div>
+    </div>
+  </div>`;
+}
+
 function renderJogos() {
   const div = document.getElementById('lista-jogos');
   if (todosJogos.length === 0) {
     div.innerHTML = '<div class="text-center text-muted py-5">Nenhum jogo registrado.</div>';
     return;
   }
-  div.innerHTML = todosJogos.map(j => {
-    const ausentes = j.mensalistas_ausentes || [];
-    const mensalistasPresentes = mensalistasAtivos.filter(m => !ausentes.includes(m.id));
-    const totalParticipantes = mensalistasPresentes.length + j.avulsos.length;
-    const mensalistasBadges = mensalistasAtivos.map(m =>
-      ausentes.includes(m.id)
-        ? `<span class="badge me-1 mb-1" style="background:#e2e8f0;color:#94a3b8;text-decoration:line-through">${m.nome}</span>`
-        : `<span class="badge badge-mensalista me-1 mb-1">${m.nome}</span>`
-    ).join('');
-    const avulsosBadges = j.avulsos.map(a =>
-      `<span class="badge badge-avulso me-1 mb-1">${a.nome}</span>`
-    ).join('');
 
-    const catColor = j.categoria === 'Liga Semestral/Anual' ? 'bg-danger' : j.categoria === 'Torneios Diversos' ? 'bg-warning text-dark' : j.categoria === 'Amistoso' ? 'bg-success' : 'bg-primary';
-    return `
-    <div class="card mb-3">
-      <div class="card-body">
-        <div class="d-flex justify-content-between align-items-start">
-          <div>
-            <h6 class="mb-1 fw-bold"><i class="bi bi-calendar-event me-2 text-primary"></i>${fmtDate(j.data)}</h6>
-            ${j.categoria ? `<span class="badge ${catColor} me-2 mb-1">${j.categoria}</span>` : ''}
-            ${j.observacao ? `<small class="text-muted">${j.observacao}</small>` : ''}
-          </div>
-          <div class="d-flex align-items-center gap-2 flex-wrap">
-            <span class="badge bg-secondary">${totalParticipantes} jogadores</span>
-            <button class="btn btn-sm btn-outline-primary" onclick="editarJogadores(${j.id}, '${j.data}')">
-              <i class="bi bi-people me-1"></i>Jogadores
-            </button>
-            <button class="btn btn-sm btn-outline-secondary" onclick="editarJogo(${j.id})">
-              <i class="bi bi-pencil"></i>
-            </button>
-            <button class="btn btn-sm btn-outline-danger" onclick="excluirJogo(${j.id}, '${fmtDate(j.data)}')">
-              <i class="bi bi-trash"></i>
-            </button>
-          </div>
-        </div>
-        <div class="mt-2">
-          ${mensalistasBadges}${avulsosBadges}
-          ${totalParticipantes === 0 ? '<span class="text-muted small">Nenhum participante</span>' : ''}
-        </div>
-      </div>
+  const hoje = today();
+  // todosJogos já vem em ordem crescente do backend
+  const futuros  = todosJogos.filter(j => j.data >= hoje);  // crescente: próximo primeiro
+  const passados = todosJogos.filter(j => j.data < hoje).reverse(); // decrescente: mais recente primeiro
+
+  let html = '';
+
+  if (futuros.length > 0) {
+    html += `<div class="d-flex align-items-center gap-2 mb-3 mt-1">
+      <span class="badge bg-primary px-3 py-2" style="font-size:.85rem"><i class="bi bi-calendar-check me-1"></i>Próximos jogos</span>
+      <span class="text-muted small">${futuros.length} evento(s)</span>
     </div>`;
-  }).join('');
+    html += futuros.map(renderCardJogo).join('');
+  } else {
+    html += `<div class="alert alert-light border mb-3 text-muted small"><i class="bi bi-calendar-x me-1"></i>Nenhum jogo futuro cadastrado.</div>`;
+  }
+
+  if (passados.length > 0) {
+    html += `<div class="d-flex align-items-center gap-2 mb-3 mt-4">
+      <span class="badge bg-secondary px-3 py-2" style="font-size:.85rem"><i class="bi bi-clock-history me-1"></i>Jogos passados</span>
+      <span class="text-muted small">${passados.length} evento(s)</span>
+    </div>`;
+    html += passados.map(renderCardJogo).join('');
+  }
+
+  div.innerHTML = html;
 }
 
 function abrirModalJogo() {
@@ -1586,7 +1616,7 @@ async function enviarWhatsApp(jogadorId, nomeJogador, telefone, tipo) {
   const agora = new Date();
   const mes = MESES[agora.getMonth() + 1];
   const ano = agora.getFullYear();
-  const volei = '\uD83C\uDFD0';
+  const volei = String.fromCodePoint(0x1F3D0);
 
   // Abre a janela imediatamente (antes de qualquer await) para evitar bloqueio de popup
   const janela = window.open('', '_blank');
@@ -1889,7 +1919,7 @@ async function cobrancaEnviar() {
   if (j.telefone) {
     // Monta mensagem igual ao enviarWhatsApp individual
     const link = linkPagamento(j.id);
-    const volei = '\uD83C\uDFD0';
+    const volei = String.fromCodePoint(0x1F3D0);
     let msg;
     if (j.tipo === 'avulso') {
       msg = `Olá ${j.nome}! \n\nAqui é da equipe do Voleizou! ${volei}${volei}${volei}${volei}\n\nSegue o link para enviar seu comprovante de pagamento referente ao jogo do dia *${j.ref}*:\n\n${link}\n\nObrigado!`;

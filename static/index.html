@@ -1204,9 +1204,11 @@ async function enviarWhatsApp(jogadorId, nomeJogador, telefone, tipo) {
   const ano = agora.getFullYear();
   const volei = '\uD83C\uDFD0';
 
+  // Abre a janela imediatamente (antes de qualquer await) para evitar bloqueio de popup
+  const janela = window.open('', '_blank');
+
   let msg;
   if (tipo === 'avulso') {
-    // Busca a data do último jogo direto da API
     let dataJogoFmt = `${String(agora.getDate()).padStart(2,'0')}/${String(agora.getMonth()+1).padStart(2,'0')}/${ano}`;
     try {
       const jogos = await api('GET', '/api/jogos');
@@ -1224,7 +1226,7 @@ async function enviarWhatsApp(jogadorId, nomeJogador, telefone, tipo) {
   const url = tel
     ? `https://wa.me/55${tel}?text=${encodeURIComponent(msg)}`
     : `https://wa.me/?text=${encodeURIComponent(msg)}`;
-  window.open(url, '_blank');
+  janela.location.href = url;
 }
 
 // ── Caixa Geral ───────────────────────────────────────────────────────────────

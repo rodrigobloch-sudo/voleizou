@@ -205,9 +205,14 @@
   <div id="page-jogadores" class="page">
     <div class="d-flex justify-content-between align-items-center mb-4">
       <h5 class="fw-bold mb-0">Jogadores</h5>
-      <button class="btn btn-primary btn-sm" onclick="abrirModalJogador()">
-        <i class="bi bi-plus-lg me-1"></i>Novo jogador
-      </button>
+      <div class="d-flex gap-2">
+        <button class="btn btn-success btn-sm" onclick="abrirCobrancaMassa()">
+          <i class="bi bi-whatsapp me-1"></i>Cobrar em massa
+        </button>
+        <button class="btn btn-primary btn-sm" onclick="abrirModalJogador()">
+          <i class="bi bi-plus-lg me-1"></i>Novo jogador
+        </button>
+      </div>
     </div>
     <div class="card">
       <div class="card-body p-0">
@@ -668,6 +673,49 @@
       <div class="modal-footer">
         <button class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
         <button class="btn btn-primary" onclick="salvarSaida()">Salvar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal Cobrança em Massa -->
+<div class="modal fade" id="modalCobranca" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header bg-success text-white">
+        <h5 class="modal-title"><i class="bi bi-whatsapp me-2"></i>Cobrar em massa</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body p-0">
+
+        <!-- Barra de progresso + controles -->
+        <div class="p-3 border-bottom bg-light">
+          <div class="d-flex justify-content-between align-items-center mb-2">
+            <span class="fw-bold" id="cobr-progresso-txt">0 / 0 enviados</span>
+            <div class="d-flex gap-2">
+              <button class="btn btn-sm btn-outline-secondary" onclick="cobrancaFiltrar('pendentes')">Só pendentes</button>
+              <button class="btn btn-sm btn-outline-secondary" onclick="cobrancaFiltrar('todos')">Todos</button>
+            </div>
+          </div>
+          <div class="progress" style="height:8px">
+            <div class="progress-bar bg-success" id="cobr-barra" style="width:0%"></div>
+          </div>
+        </div>
+
+        <!-- Card do jogador atual -->
+        <div id="cobr-card" class="p-4">
+          <div class="text-center text-muted py-5">Nenhum jogador para contatar.</div>
+        </div>
+
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" data-bs-dismiss="modal">Fechar</button>
+        <button class="btn btn-outline-secondary" id="cobr-btn-pular" onclick="cobrancaAvancar(false)" style="display:none">
+          <i class="bi bi-skip-forward me-1"></i>Pular
+        </button>
+        <button class="btn btn-success btn-lg" id="cobr-btn-enviar" onclick="cobrancaEnviar()" style="display:none">
+          <i class="bi bi-whatsapp me-1"></i>Abrir WhatsApp e avançar
+        </button>
       </div>
     </div>
   </div>
@@ -1688,6 +1736,178 @@ carregarPendentes = async function() {
     badgeTop.className = badge.className.replace('ms-1', '');
   }
 };
+
+// ── Cobrança em massa ─────────────────────────────────────────────────────────
+let cobrancaLista = [];   // jogadores a contatar
+let cobrancaIdx = 0;      // índice atual
+let cobrancaEnviados = 0; // quantos já foram abertos
+
+async function abrirCobrancaMassa() {
+  // Carrega dados frescos de dashboard (mês atual) + todos os jogadores
+  const [dash, jogadores, jogos] = await Promise.all([
+    api('GET', `/api/dashboard?mes=${new Date().getMonth()+1}&ano=${new Date().getFullYear()}`),
+    api('GET', '/api/jogadores'),
+    api('GET', '/api/jogos'),
+  ]);
+
+  // Monta lista de todos com telefone, status e valor devido
+  const lista = [];
+
+  // Mensalistas
+  dash.mensalistas_lista.forEach(m => {
+    if (m.status === 'quitado') return; // já pagou, pula
+    const jog = jogadores.find(j => j.id === m.id);
+    lista.push({
+      id: m.id,
+      nome: m.nome,
+      tipo: 'mensalista',
+      telefone: jog?.telefone || '',
+      status: m.status,
+      valor_devido: m.valor_falta,
+      ref: `${MESES[new Date().getMonth()+1]} ${new Date().getFullYear()}`,
+    });
+  });
+
+  // Avulsos com pendências
+  dash.avulsos_resumo.forEach(a => {
+    if (a.pendente <= 0) return;
+    const jog = jogadores.find(j => j.id === a.id);
+    const ultimo = jogos.length > 0 ? jogos[0].data : null;
+    lista.push({
+      id: a.id,
+      nome: a.nome,
+      tipo: 'avulso',
+      telefone: jog?.telefone || '',
+      status: 'em_aberto',
+      valor_devido: a.pendente,
+      ref: ultimo ? fmtDate(ultimo) : '—',
+    });
+  });
+
+  cobrancaLista = lista;
+  cobrancaIdx = 0;
+  cobrancaEnviados = 0;
+  cobrancaRenderCard();
+  new bootstrap.Modal('#modalCobranca').show();
+}
+
+function cobrancaFiltrar(modo) {
+  // Já carregado; apenas reordena/filtra na lista atual
+  if (modo === 'todos') {
+    // Recarrega incluindo todos (mesmo quitados) — rellamada abrirCobrancaMassa com flag
+    abrirCobrancaMassaTodos();
+  } else {
+    abrirCobrancaMassa();
+  }
+}
+
+async function abrirCobrancaMassaTodos() {
+  const [jogadores, jogos] = await Promise.all([
+    api('GET', '/api/jogadores'),
+    api('GET', '/api/jogos'),
+  ]);
+  const ultimo = jogos.length > 0 ? jogos[0].data : null;
+  cobrancaLista = jogadores.filter(j => j.ativo && j.telefone).map(j => ({
+    id: j.id,
+    nome: j.nome,
+    tipo: j.tipo,
+    telefone: j.telefone,
+    status: 'qualquer',
+    valor_devido: null,
+    ref: j.tipo === 'mensalista'
+      ? `${MESES[new Date().getMonth()+1]} ${new Date().getFullYear()}`
+      : (ultimo ? fmtDate(ultimo) : '—'),
+  }));
+  cobrancaIdx = 0;
+  cobrancaEnviados = 0;
+  cobrancaRenderCard();
+}
+
+function cobrancaRenderCard() {
+  const total = cobrancaLista.length;
+  const pct = total > 0 ? Math.round((cobrancaEnviados / total) * 100) : 0;
+  document.getElementById('cobr-progresso-txt').textContent = `${cobrancaEnviados} / ${total} enviados`;
+  document.getElementById('cobr-barra').style.width = pct + '%';
+
+  const card = document.getElementById('cobr-card');
+  const btnEnviar = document.getElementById('cobr-btn-enviar');
+  const btnPular = document.getElementById('cobr-btn-pular');
+
+  if (total === 0 || cobrancaIdx >= total) {
+    const msg = cobrancaEnviados > 0
+      ? `<div class="text-center py-5"><i class="bi bi-check-circle-fill text-success" style="font-size:3rem"></i><h5 class="mt-3 fw-bold">Tudo enviado!</h5><p class="text-muted">${cobrancaEnviados} mensagem(ns) enviada(s).</p></div>`
+      : `<div class="text-center text-muted py-5">Nenhum jogador com pendência encontrado.</div>`;
+    card.innerHTML = msg;
+    btnEnviar.style.display = 'none';
+    btnPular.style.display = 'none';
+    return;
+  }
+
+  const j = cobrancaLista[cobrancaIdx];
+  const statusBadge = j.status === 'parcial'
+    ? `<span class="badge bg-warning text-dark">Parcial</span>`
+    : j.status === 'em_aberto'
+    ? `<span class="badge bg-danger">Em aberto</span>`
+    : `<span class="badge bg-secondary">—</span>`;
+
+  const valorHtml = j.valor_devido != null
+    ? `<div class="mt-2"><span class="text-danger fw-bold fs-5">${fmt(j.valor_devido)}</span> <span class="text-muted small">em aberto</span></div>`
+    : '';
+
+  card.innerHTML = `
+    <div class="d-flex align-items-center gap-3 mb-3">
+      <div class="rounded-circle bg-primary text-white d-flex align-items-center justify-content-center flex-shrink-0"
+        style="width:52px;height:52px;font-size:1.4rem;font-weight:700">${j.nome[0].toUpperCase()}</div>
+      <div>
+        <h5 class="mb-0 fw-bold">${j.nome}</h5>
+        <div class="d-flex align-items-center gap-2 mt-1">
+          <span class="badge ${j.tipo === 'mensalista' ? 'badge-mensalista' : 'badge-avulso'}">${j.tipo}</span>
+          ${statusBadge}
+        </div>
+        ${valorHtml}
+      </div>
+    </div>
+    <div class="alert alert-light border small mb-0">
+      <i class="bi bi-phone me-1"></i>${j.telefone ? `<strong>${j.telefone}</strong>` : '<span class="text-warning">Sem telefone cadastrado</span>'}
+      &nbsp;·&nbsp;
+      <i class="bi bi-calendar me-1"></i>Ref: <strong>${j.ref}</strong>
+    </div>
+    <div class="text-muted small mt-2 text-center">${cobrancaIdx + 1} de ${total}</div>
+  `;
+
+  btnEnviar.style.display = '';
+  btnEnviar.textContent = '';
+  btnEnviar.innerHTML = `<i class="bi bi-whatsapp me-1"></i>${j.telefone ? 'Abrir WhatsApp e avançar' : 'Pular (sem telefone)'}`;
+  btnPular.style.display = '';
+}
+
+async function cobrancaEnviar() {
+  const j = cobrancaLista[cobrancaIdx];
+  if (!j) return;
+
+  if (j.telefone) {
+    // Monta mensagem igual ao enviarWhatsApp individual
+    const link = linkPagamento(j.id);
+    const volei = '\uD83C\uDFD0';
+    let msg;
+    if (j.tipo === 'avulso') {
+      msg = `Olá ${j.nome}! \n\nAqui é da equipe do Voleizou! ${volei}${volei}${volei}${volei}\n\nSegue o link para enviar seu comprovante de pagamento referente ao jogo do dia *${j.ref}*:\n\n${link}\n\nObrigado!`;
+    } else {
+      msg = `Olá ${j.nome}! \n\nAqui é da equipe do Voleizou! ${volei}${volei}${volei}${volei}\n\nSegue o link para enviar seu comprovante de pagamento referente a *${j.ref}*:\n\n${link}\n\nObrigado!`;
+    }
+    const tel = j.telefone.replace(/\D/g, '');
+    const url = `https://wa.me/55${tel}?text=${encodeURIComponent(msg)}`;
+    window.open(url, '_blank');
+  }
+
+  cobrancaAvancar(true);
+}
+
+function cobrancaAvancar(contou) {
+  if (contou) cobrancaEnviados++;
+  cobrancaIdx++;
+  cobrancaRenderCard();
+}
 
 // ── Init ─────────────────────────────────────────────────────────────────────
 carregarDashboard();

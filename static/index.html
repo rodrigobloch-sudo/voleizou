@@ -506,20 +506,34 @@
   </div>
 </div>
 
-<!-- Modal Avulsos no Jogo -->
-<div class="modal fade" id="modalAvulsos" tabindex="-1">
+<!-- Modal Jogadores do Jogo -->
+<div class="modal fade" id="modalJogadores" tabindex="-1">
   <div class="modal-dialog">
     <div class="modal-content">
       <div class="modal-header">
-        <h5 class="modal-title" id="modalAvulsosTitulo">Avulsos</h5>
+        <h5 class="modal-title" id="modalJogadoresTitulo">Jogadores</h5>
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
       <div class="modal-body">
+
+        <!-- Mensalistas -->
+        <h6 class="fw-bold mb-2"><i class="bi bi-person-check text-primary me-1"></i>Mensalistas</h6>
+        <p class="text-muted small mb-2">Desmarque quem não esteve presente neste jogo.</p>
+        <div id="lista-mensalistas-jogo" class="mb-3"></div>
+        <button class="btn btn-sm btn-outline-primary w-100 mb-4" onclick="salvarPresencas()">
+          <i class="bi bi-check2 me-1"></i>Salvar presenças de mensalistas
+        </button>
+
+        <hr />
+
+        <!-- Avulsos -->
+        <h6 class="fw-bold mb-2"><i class="bi bi-person-badge text-warning me-1"></i>Avulsos</h6>
         <div class="mb-3 d-flex gap-2">
           <select class="form-select" id="avulso-select"></select>
           <button class="btn btn-primary btn-sm" onclick="adicionarAvulso()"><i class="bi bi-plus-lg"></i></button>
         </div>
         <div id="lista-avulsos-jogo"></div>
+
       </div>
     </div>
   </div>
@@ -1047,9 +1061,13 @@ function renderJogos() {
     return;
   }
   div.innerHTML = todosJogos.map(j => {
-    const totalParticipantes = mensalistasAtivos.length + j.avulsos.length;
+    const ausentes = j.mensalistas_ausentes || [];
+    const mensalistasPresentes = mensalistasAtivos.filter(m => !ausentes.includes(m.id));
+    const totalParticipantes = mensalistasPresentes.length + j.avulsos.length;
     const mensalistasBadges = mensalistasAtivos.map(m =>
-      `<span class="badge badge-mensalista me-1 mb-1">${m.nome}</span>`
+      ausentes.includes(m.id)
+        ? `<span class="badge me-1 mb-1" style="background:#e2e8f0;color:#94a3b8;text-decoration:line-through">${m.nome}</span>`
+        : `<span class="badge badge-mensalista me-1 mb-1">${m.nome}</span>`
     ).join('');
     const avulsosBadges = j.avulsos.map(a =>
       `<span class="badge badge-avulso me-1 mb-1">${a.nome}</span>`
@@ -1067,8 +1085,8 @@ function renderJogos() {
           </div>
           <div class="d-flex align-items-center gap-2 flex-wrap">
             <span class="badge bg-secondary">${totalParticipantes} jogadores</span>
-            <button class="btn btn-sm btn-outline-primary" onclick="abrirAvulsos(${j.id}, '${j.data}')">
-              <i class="bi bi-person-plus me-1"></i>Avulsos
+            <button class="btn btn-sm btn-outline-primary" onclick="editarJogadores(${j.id}, '${j.data}')">
+              <i class="bi bi-people me-1"></i>Jogadores
             </button>
             <button class="btn btn-sm btn-outline-secondary" onclick="editarJogo(${j.id})">
               <i class="bi bi-pencil"></i>
@@ -1138,30 +1156,68 @@ async function excluirJogo(id, dataFmt) {
   } catch(e) { toast(e.message, 'danger'); }
 }
 
-async function abrirAvulsos(jogoId, data) {
+async function editarJogadores(jogoId, data) {
   jogoAtualId = jogoId;
-  document.getElementById('modalAvulsosTitulo').textContent = `Avulsos — ${fmtDate(data)}`;
-  const avulsos = await api('GET', '/api/jogadores?tipo=avulso');
+  document.getElementById('modalJogadoresTitulo').textContent = `Jogadores — ${fmtDate(data)}`;
+
+  // Carrega jogo atual, todos mensalistas ativos e avulsos em paralelo
+  const [jogo, todosAvulsos] = await Promise.all([
+    api('GET', `/api/jogos/${jogoId}`),
+    api('GET', '/api/jogadores?tipo=avulso'),
+  ]);
+
+  // Seção mensalistas
+  const ausentes = jogo.mensalistas_ausentes || [];
+  const divM = document.getElementById('lista-mensalistas-jogo');
+  if (mensalistasAtivos.length === 0) {
+    divM.innerHTML = '<p class="text-muted small">Nenhum mensalista ativo.</p>';
+  } else {
+    divM.innerHTML = mensalistasAtivos.map(m => `
+      <div class="form-check py-1">
+        <input class="form-check-input" type="checkbox" id="mens-${m.id}" value="${m.id}"
+          ${ausentes.includes(m.id) ? '' : 'checked'} />
+        <label class="form-check-label" for="mens-${m.id}">${m.nome}</label>
+      </div>`).join('');
+  }
+
+  // Seção avulsos — select de adição
   const select = document.getElementById('avulso-select');
-  select.innerHTML = avulsos.filter(a => a.ativo).map(a => `<option value="${a.id}">${a.nome}</option>`).join('');
-  await renderAvulsosJogo(jogoId);
-  new bootstrap.Modal('#modalAvulsos').show();
+  select.innerHTML = todosAvulsos.filter(a => a.ativo).map(a =>
+    `<option value="${a.id}">${a.nome}</option>`
+  ).join('');
+  renderAvulsosJogo(jogo);
+
+  new bootstrap.Modal('#modalJogadores').show();
 }
 
-async function renderAvulsosJogo(jogoId) {
-  const jogo = await api('GET', `/api/jogos/${jogoId}`);
+function renderAvulsosJogo(jogo) {
   const div = document.getElementById('lista-avulsos-jogo');
-  if (jogo.avulsos.length === 0) {
+  if (!jogo.avulsos || jogo.avulsos.length === 0) {
     div.innerHTML = '<p class="text-muted small">Nenhum avulso neste jogo.</p>';
     return;
   }
   div.innerHTML = jogo.avulsos.map(a => `
     <div class="d-flex justify-content-between align-items-center py-2 border-bottom">
       <span>${a.nome}</span>
-      <button class="btn btn-sm btn-outline-danger" onclick="removerAvulsoJogo(${jogoId}, ${a.id})">
+      <button class="btn btn-sm btn-outline-danger" onclick="removerAvulsoJogo(${jogo.id}, ${a.id})">
         <i class="bi bi-trash"></i>
       </button>
     </div>`).join('');
+}
+
+async function refreshAvulsosJogo() {
+  const jogo = await api('GET', `/api/jogos/${jogoAtualId}`);
+  renderAvulsosJogo(jogo);
+}
+
+async function salvarPresencas() {
+  const checkboxes = document.querySelectorAll('#lista-mensalistas-jogo input[type=checkbox]');
+  const ausentesIds = [...checkboxes].filter(cb => !cb.checked).map(cb => parseInt(cb.value));
+  try {
+    await api('PUT', `/api/jogos/${jogoAtualId}/presencas`, { ausentes_ids: ausentesIds });
+    toast('Presenças salvas!');
+    carregarJogos();
+  } catch(e) { toast(e.message, 'danger'); }
 }
 
 async function adicionarAvulso() {
@@ -1170,7 +1226,7 @@ async function adicionarAvulso() {
   try {
     await api('POST', `/api/jogos/${jogoAtualId}/participacoes`, { jogador_id: parseInt(jogadorId) });
     toast('Avulso adicionado!');
-    renderAvulsosJogo(jogoAtualId);
+    await refreshAvulsosJogo();
     carregarJogos();
   } catch(e) { toast(e.message, 'danger'); }
 }
@@ -1180,7 +1236,7 @@ async function removerAvulsoJogo(jogoId, jogadorId) {
   try {
     await api('DELETE', `/api/jogos/${jogoId}/participacoes/${jogadorId}`);
     toast('Removido');
-    await renderAvulsosJogo(jogoId);
+    await refreshAvulsosJogo();
     carregarJogos();
   } catch(e) { toast(e.message, 'danger'); }
 }

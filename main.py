@@ -25,7 +25,8 @@ def _migrar():
             ("jogadores", "data_nascimento",  "DATE"),
             ("jogadores", "cpf",             "VARCHAR"),
             ("jogadores", "rg",              "VARCHAR"),
-            ("jogos",     "categoria",        "VARCHAR"),
+            ("jogos",     "categoria",             "VARCHAR"),
+            ("jogos",     "mensalistas_ausentes",  "VARCHAR"),
         ]
         for tabela, coluna, tipo in migrações:
             try:
@@ -138,6 +139,9 @@ class PagamentoCreate(BaseModel):
     tipo: str
     observacao: Optional[str] = None
 
+class PresencasUpdate(BaseModel):
+    ausentes_ids: List[int]
+
 class SaidaCreate(BaseModel):
     descricao: str
     valor: float
@@ -219,6 +223,7 @@ def listar_jogos(db: Session = Depends(get_db)):
             }
             for p in jogo.participacoes
         ]
+        ausentes = [int(x) for x in (jogo.mensalistas_ausentes or '').split(',') if x.strip()]
         result.append({
             "id": jogo.id,
             "data": jogo.data.isoformat(),
@@ -226,6 +231,7 @@ def listar_jogos(db: Session = Depends(get_db)):
             "observacao": jogo.observacao,
             "avulsos": avulsos,
             "total_avulsos": len(avulsos),
+            "mensalistas_ausentes": ausentes,
         })
     return result
 
@@ -247,7 +253,9 @@ def obter_jogo(jogo_id: int, db: Session = Depends(get_db)):
         {"id": p.jogador.id, "nome": p.jogador.nome, "participacao_id": p.id}
         for p in jogo.participacoes
     ]
-    return {"id": jogo.id, "data": jogo.data.isoformat(), "categoria": jogo.categoria, "observacao": jogo.observacao, "avulsos": avulsos}
+    ausentes = [int(x) for x in (jogo.mensalistas_ausentes or '').split(',') if x.strip()]
+    return {"id": jogo.id, "data": jogo.data.isoformat(), "categoria": jogo.categoria,
+            "observacao": jogo.observacao, "avulsos": avulsos, "mensalistas_ausentes": ausentes}
 
 @app.put("/api/jogos/{jogo_id}")
 def atualizar_jogo(jogo_id: int, data: JogoCreate, db: Session = Depends(get_db)):
@@ -259,6 +267,15 @@ def atualizar_jogo(jogo_id: int, data: JogoCreate, db: Session = Depends(get_db)
     jogo.observacao = data.observacao
     db.commit()
     return {"id": jogo.id, "data": jogo.data.isoformat(), "categoria": jogo.categoria, "observacao": jogo.observacao}
+
+@app.put("/api/jogos/{jogo_id}/presencas")
+def atualizar_presencas(jogo_id: int, data: PresencasUpdate, db: Session = Depends(get_db)):
+    jogo = db.query(models.Jogo).filter(models.Jogo.id == jogo_id).first()
+    if not jogo:
+        raise HTTPException(404, "Jogo não encontrado")
+    jogo.mensalistas_ausentes = ','.join(str(i) for i in data.ausentes_ids) if data.ausentes_ids else None
+    db.commit()
+    return {"ok": True}
 
 @app.delete("/api/jogos/{jogo_id}")
 def deletar_jogo(jogo_id: int, db: Session = Depends(get_db)):

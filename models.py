@@ -26,11 +26,12 @@ class Jogador(Base):
 class Jogo(Base):
     __tablename__ = "jogos"
 
-    id         = Column(Integer, primary_key=True, index=True)
-    data       = Column(Date, nullable=False)
-    categoria  = Column(String, nullable=True)   # "Jogo Semanal" | "Amistoso" | "Torneios Diversos" | "Liga Semestral/Anual"
-    observacao = Column(String, nullable=True)
-    criado_em  = Column(DateTime, server_default=func.now())
+    id                   = Column(Integer, primary_key=True, index=True)
+    data                 = Column(Date, nullable=False)
+    categoria            = Column(String, nullable=True)
+    observacao           = Column(String, nullable=True)
+    mensalistas_ausentes = Column(String, nullable=True)  # IDs separados por vírgula
+    criado_em            = Column(DateTime, server_default=func.now())
 
     participacoes = relationship("ParticipacaoAvulso", back_populates="jogo", cascade="all, delete-orphan")
 

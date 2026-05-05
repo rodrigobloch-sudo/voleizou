@@ -23,6 +23,13 @@ ADMIN_USER      = os.getenv("ADMIN_USER",      "admin")
 ADMIN_PASS      = os.getenv("ADMIN_PASSWORD",  "volei123")
 ENCRYPTION_KEY  = os.getenv("ENCRYPTION_KEY",  "")
 
+# Menus do sistema — adicione aqui sempre que criar uma nova seção
+MENUS_SLUGS = [
+    "dashboard", "jogadores", "jogos", "pagamentos",
+    "saidas", "caixa", "pendentes", "config",
+]
+TIPOS_USUARIO = ["admin", "mensalista", "avulso"]
+
 # ── Helpers de criptografia (CPF / RG) ───────────────────────────────────────
 
 def _fernet() -> Fernet | None:
@@ -101,6 +108,7 @@ def _migrar():
             ("jogos",     "categoria",             "VARCHAR"),
             ("jogos",     "mensalistas_ausentes",  "VARCHAR"),
             ("jogos",     "valor",                 "REAL"),
+            ("usuarios",  "tipo",                  "VARCHAR"),
         ]
         for tabela, coluna, tipo in migrações:
             try:
@@ -163,6 +171,35 @@ def _seed_admin():
         db.close()
 
 _seed_admin()
+
+def _seed_permissoes():
+    """Cria entradas de permissão para qualquer menu/tipo que ainda não exista.
+    Novos menus nascem com admin=True e demais=False."""
+    db = SessionLocal()
+    try:
+        # Garante tipo='admin' nos usuários que não têm o campo preenchido
+        db.execute(__import__('sqlalchemy').text(
+            "UPDATE usuarios SET tipo='admin' WHERE tipo IS NULL OR tipo=''"
+        ))
+        db.commit()
+        for tipo in TIPOS_USUARIO:
+            for slug in MENUS_SLUGS:
+                existe = db.query(models.Permissao).filter_by(
+                    tipo_usuario=tipo, menu_slug=slug
+                ).first()
+                if not existe:
+                    db.add(models.Permissao(
+                        tipo_usuario=tipo,
+                        menu_slug=slug,
+                        permitido=(tipo == "admin"),
+                    ))
+        db.commit()
+    except Exception:
+        db.rollback()
+    finally:
+        db.close()
+
+_seed_permissoes()
 
 def _migrar_criptografia():
     """Criptografa CPF/RG existentes que ainda estão em texto puro."""
@@ -243,11 +280,23 @@ def logout(response: Response):
     return {"ok": True}
 
 @app.get("/api/me")
-def me(request: Request):
+def me(request: Request, db: Session = Depends(get_db)):
     token = request.cookies.get("volei_sessao", "")
     if not _verificar_token(token):
         raise HTTPException(401, "Não autenticado")
-    return {"ok": True}
+    # Extrai login do token (formato: "usuario:ordinal.sig")
+    try:
+        login = token.rsplit(".", 1)[0].rsplit(":", 1)[0]
+    except Exception:
+        login = ""
+    u = db.query(models.Usuario).filter(models.Usuario.usuario == login).first()
+    tipo = (u.tipo or "admin") if u else "admin"
+    perms = db.query(models.Permissao).filter(models.Permissao.tipo_usuario == tipo).all()
+    return {
+        "ok": True,
+        "tipo": tipo,
+        "permissoes": {p.menu_slug: p.permitido for p in perms},
+    }
 
 
 # ── Gerenciamento de usuários ─────────────────────────────────────────────────
@@ -256,14 +305,22 @@ class UsuarioCreate(BaseModel):
     nome: str
     usuario: str
     senha: str
+    tipo: str = "admin"
 
 class SenhaUpdate(BaseModel):
     senha_nova: str
+
+class TipoUpdate(BaseModel):
+    tipo: str
+
+class PermissaoUpdate(BaseModel):
+    permitido: bool
 
 @app.get("/api/usuarios")
 def listar_usuarios(db: Session = Depends(get_db)):
     return [
         {"id": u.id, "nome": u.nome, "usuario": u.usuario,
+         "tipo": u.tipo or "admin",
          "criado_em": u.criado_em.isoformat() if u.criado_em else None}
         for u in db.query(models.Usuario).order_by(models.Usuario.nome).all()
     ]
@@ -274,12 +331,14 @@ def criar_usuario(data: UsuarioCreate, db: Session = Depends(get_db)):
         raise HTTPException(400, f"Usuário '{data.usuario}' já existe")
     if len(data.senha) < 4:
         raise HTTPException(400, "A senha deve ter pelo menos 4 caracteres")
+    if data.tipo not in TIPOS_USUARIO:
+        raise HTTPException(400, f"Tipo inválido. Use: {', '.join(TIPOS_USUARIO)}")
     senha_hash = bcrypt.hashpw(data.senha.encode(), bcrypt.gensalt()).decode()
-    u = models.Usuario(nome=data.nome, usuario=data.usuario, senha_hash=senha_hash)
+    u = models.Usuario(nome=data.nome, usuario=data.usuario, senha_hash=senha_hash, tipo=data.tipo)
     db.add(u)
     db.commit()
     db.refresh(u)
-    return {"id": u.id, "nome": u.nome, "usuario": u.usuario}
+    return {"id": u.id, "nome": u.nome, "usuario": u.usuario, "tipo": u.tipo}
 
 @app.put("/api/usuarios/{usuario_id}/senha")
 def alterar_senha(usuario_id: int, data: SenhaUpdate, db: Session = Depends(get_db)):
@@ -302,6 +361,45 @@ def deletar_usuario(usuario_id: int, db: Session = Depends(get_db)):
     db.delete(u)
     db.commit()
     return {"ok": True}
+
+@app.put("/api/usuarios/{usuario_id}/tipo")
+def alterar_tipo(usuario_id: int, data: TipoUpdate, db: Session = Depends(get_db)):
+    if data.tipo not in TIPOS_USUARIO:
+        raise HTTPException(400, f"Tipo inválido. Use: {', '.join(TIPOS_USUARIO)}")
+    u = db.query(models.Usuario).filter(models.Usuario.id == usuario_id).first()
+    if not u:
+        raise HTTPException(404, "Usuário não encontrado")
+    u.tipo = data.tipo
+    db.commit()
+    return {"ok": True}
+
+
+# ── Permissões ────────────────────────────────────────────────────────────────
+
+@app.get("/api/permissoes")
+def listar_permissoes(db: Session = Depends(get_db)):
+    perms = db.query(models.Permissao).all()
+    result: dict = {t: {} for t in TIPOS_USUARIO}
+    for p in perms:
+        if p.tipo_usuario in result:
+            result[p.tipo_usuario][p.menu_slug] = p.permitido
+    return result
+
+@app.put("/api/permissoes/{tipo_usuario}/{menu_slug}")
+def atualizar_permissao(tipo_usuario: str, menu_slug: str, data: PermissaoUpdate,
+                        db: Session = Depends(get_db)):
+    if tipo_usuario not in TIPOS_USUARIO:
+        raise HTTPException(400, "Tipo de usuário inválido")
+    if tipo_usuario == "admin" and menu_slug == "config" and not data.permitido:
+        raise HTTPException(400, "Não é possível remover o acesso a Configurações do Admin")
+    p = db.query(models.Permissao).filter_by(
+        tipo_usuario=tipo_usuario, menu_slug=menu_slug
+    ).first()
+    if not p:
+        raise HTTPException(404, "Permissão não encontrada")
+    p.permitido = data.permitido
+    db.commit()
+    return {"ok": True, "permitido": p.permitido}
 
 
 # ── Schemas ───────────────────────────────────────────────────────────────────

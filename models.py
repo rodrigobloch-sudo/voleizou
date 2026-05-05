@@ -96,4 +96,16 @@ class Usuario(Base):
     nome       = Column(String, nullable=False)
     usuario    = Column(String, nullable=False, unique=True)
     senha_hash = Column(String, nullable=False)
+    tipo       = Column(String, nullable=False, default="admin")  # admin | mensalista | avulso
     criado_em  = Column(DateTime, server_default=func.now())
+
+
+class Permissao(Base):
+    """Permissões de acesso por tipo de usuário."""
+    __tablename__ = "permissoes"
+    __table_args__ = (UniqueConstraint("tipo_usuario", "menu_slug"),)
+
+    id           = Column(Integer, primary_key=True, index=True)
+    tipo_usuario = Column(String, nullable=False)   # admin | mensalista | avulso
+    menu_slug    = Column(String, nullable=False)   # dashboard | jogadores | …
+    permitido    = Column(Boolean, nullable=False, default=False)

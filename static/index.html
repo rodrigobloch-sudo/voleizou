@@ -88,6 +88,19 @@
     .dot-red { background: #ef4444; }
     .dot-yellow { background: #f59e0b; }
 
+    /* ── Sidebar submenu ── */
+    .sidebar-submenu a {
+      padding-left: 40px !important;
+      font-size: 0.85rem;
+    }
+    .sidebar-parent { cursor: pointer; }
+    .sidebar-parent .chevron { transition: transform 0.2s; margin-left: auto; font-size: 0.8rem; }
+    .sidebar-parent.open .chevron { transform: rotate(90deg); }
+
+    /* ── Permissões toggle ── */
+    .perm-table th { font-size: 0.78rem; text-align: center; }
+    .perm-table td:not(:first-child) { text-align: center; vertical-align: middle; }
+
     /* ── Login overlay ── */
     #login-overlay {
       position: fixed; inset: 0; background: #0f172a;
@@ -168,7 +181,15 @@
     <a href="#" data-page="saidas"><i class="bi bi-arrow-up-circle"></i> Saídas</a>
     <a href="#" data-page="caixa"><i class="bi bi-safe2"></i> Caixa Geral</a>
     <a href="#" data-page="pendentes"><i class="bi bi-hourglass-split"></i> Pendentes <span id="badge-pendentes" class="badge bg-danger ms-1 d-none"></span></a>
-    <a href="#" data-page="config"><i class="bi bi-gear"></i> Configurações</a>
+    <!-- Configurações (submenu) -->
+    <a href="#" class="sidebar-parent" id="nav-config-toggle" onclick="toggleConfigMenu(event)" data-slug="config">
+      <i class="bi bi-gear"></i> Configurações
+      <i class="bi bi-chevron-right chevron"></i>
+    </a>
+    <div id="config-submenu" class="sidebar-submenu" style="display:none">
+      <a href="#" data-page="config-usuarios"><i class="bi bi-people-fill"></i> Usuários</a>
+      <a href="#" data-page="config-permissoes"><i class="bi bi-shield-lock"></i> Permissões</a>
+    </div>
   </nav>
   <div style="padding: 12px 16px; border-top: 1px solid #334155;">
     <button class="btn btn-sm w-100 text-start" style="color:#94a3b8; background:none; border:none;"
@@ -465,8 +486,8 @@
     <div id="lista-pendentes"></div>
   </div>
 
-  <!-- ── CONFIGURAÇÕES ── -->
-  <div id="page-config" class="page">
+  <!-- ── CONFIG: USUÁRIOS ── -->
+  <div id="page-config-usuarios" class="page">
     <div class="d-flex justify-content-between align-items-center mb-4">
       <h5 class="fw-bold mb-0"><i class="bi bi-people-fill me-2 text-primary"></i>Usuários do sistema</h5>
       <button class="btn btn-primary btn-sm" onclick="abrirModalNovoUsuario()">
@@ -477,9 +498,32 @@
       <div class="table-responsive">
         <table class="table table-hover mb-0">
           <thead><tr>
-            <th>Nome</th><th>Usuário</th><th>Criado em</th><th></th>
+            <th>Nome</th><th>Usuário</th><th>Tipo</th><th>Criado em</th><th></th>
           </tr></thead>
           <tbody id="config-usuarios-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── CONFIG: PERMISSÕES ── -->
+  <div id="page-config-permissoes" class="page">
+    <div class="mb-4">
+      <h5 class="fw-bold mb-1"><i class="bi bi-shield-lock me-2 text-primary"></i>Permissões de acesso</h5>
+      <p class="text-muted small mb-0">Defina quais seções cada tipo de usuário pode acessar. Novos menus são criados com Admin habilitado e demais desabilitados.</p>
+    </div>
+    <div class="card">
+      <div class="table-responsive">
+        <table class="table perm-table mb-0">
+          <thead>
+            <tr>
+              <th>Menu</th>
+              <th><span class="badge bg-primary">Admin</span></th>
+              <th><span class="badge bg-warning text-dark">Mensalista</span></th>
+              <th><span class="badge bg-secondary">Avulso</span></th>
+            </tr>
+          </thead>
+          <tbody id="perm-tbody"></tbody>
         </table>
       </div>
     </div>
@@ -783,6 +827,14 @@
           <div class="form-text">Sem espaços, usado para entrar no sistema.</div>
         </div>
         <div class="mb-3">
+          <label class="form-label fw-semibold">Tipo</label>
+          <select class="form-select" id="nu-tipo">
+            <option value="admin">Admin — acesso total por padrão</option>
+            <option value="mensalista">Mensalista — sem acesso por padrão</option>
+            <option value="avulso">Avulso — sem acesso por padrão</option>
+          </select>
+        </div>
+        <div class="mb-3">
           <label class="form-label fw-semibold">Senha</label>
           <input type="password" class="form-control" id="nu-senha" autocomplete="new-password" />
           <div class="form-text">Mínimo 4 caracteres.</div>
@@ -932,24 +984,64 @@ function toast(msg, tipo = 'success') {
 }
 
 // ── Navegação ────────────────────────────────────────────────────────────────
-document.querySelectorAll('#sidebar nav a').forEach(link => {
+let permissoesGlobais = {};
+
+function navegarPara(page) {
+  // Checa permissão (mapeia sub-páginas de config para o slug 'config')
+  const slug = page.startsWith('config') ? 'config' : page;
+  if (permissoesGlobais[slug] === false) {
+    toast('Acesso não permitido', 'danger'); return;
+  }
+  document.querySelectorAll('#sidebar nav a[data-page]').forEach(a => a.classList.remove('active'));
+  const link = document.querySelector(`#sidebar nav a[data-page="${page}"]`);
+  if (link) link.classList.add('active');
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  const pageEl = document.getElementById('page-' + page);
+  if (pageEl) pageEl.classList.add('active');
+  if (page === 'dashboard')         carregarDashboard();
+  if (page === 'jogadores')         carregarJogadores();
+  if (page === 'jogos')             carregarJogos();
+  if (page === 'pagamentos')        { carregarJogadoresSelect(); carregarPagamentos(); }
+  if (page === 'saidas')            carregarSaidas();
+  if (page === 'caixa')             carregarCaixa();
+  if (page === 'pendentes')         carregarPendentes();
+  if (page === 'config-usuarios')   carregarUsuarios();
+  if (page === 'config-permissoes') carregarPermissoes();
+}
+
+document.querySelectorAll('#sidebar nav a[data-page]').forEach(link => {
   link.addEventListener('click', e => {
     e.preventDefault();
-    const page = link.dataset.page;
-    document.querySelectorAll('#sidebar nav a').forEach(a => a.classList.remove('active'));
-    link.classList.add('active');
-    document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
-    document.getElementById('page-' + page).classList.add('active');
-    if (page === 'dashboard') carregarDashboard();
-    if (page === 'jogadores') carregarJogadores();
-    if (page === 'jogos') carregarJogos();
-    if (page === 'pagamentos') { carregarJogadoresSelect(); carregarPagamentos(); }
-    if (page === 'saidas') carregarSaidas();
-    if (page === 'caixa') carregarCaixa();
-    if (page === 'pendentes') carregarPendentes();
-    if (page === 'config') carregarUsuarios();
+    navegarPara(link.dataset.page);
+    if (window.innerWidth <= 768) {
+      document.getElementById('sidebar').classList.remove('open');
+      document.getElementById('sidebar-overlay').classList.remove('show');
+    }
   });
 });
+
+function toggleConfigMenu(e) {
+  e.preventDefault();
+  const sub = document.getElementById('config-submenu');
+  const tog = document.getElementById('nav-config-toggle');
+  const aberto = sub.style.display !== 'none';
+  sub.style.display = aberto ? 'none' : 'block';
+  tog.classList.toggle('open', !aberto);
+}
+
+function aplicarPermissoes(perms) {
+  permissoesGlobais = perms || {};
+  // Mostra/oculta itens do sidebar
+  document.querySelectorAll('#sidebar nav a[data-page]').forEach(a => {
+    const slug = a.dataset.page.startsWith('config') ? 'config' : a.dataset.page;
+    const ok = perms[slug] !== false;
+    a.style.display = ok ? '' : 'none';
+  });
+  // Mostra/oculta o toggle de configurações
+  const configOk = perms['config'] !== false;
+  document.getElementById('nav-config-toggle').style.display = configOk ? '' : 'none';
+  if (!configOk) document.getElementById('config-submenu').style.display = 'none';
+}
 
 // ── Dashboard ────────────────────────────────────────────────────────────────
 async function carregarDashboard() {
@@ -2050,15 +2142,6 @@ function toggleSidebar() {
   document.getElementById('sidebar-overlay').classList.toggle('show');
 }
 
-// Fecha sidebar ao clicar em item do menu (mobile)
-document.querySelectorAll('#sidebar nav a').forEach(link => {
-  link.addEventListener('click', () => {
-    if (window.innerWidth <= 768) {
-      document.getElementById('sidebar').classList.remove('open');
-      document.getElementById('sidebar-overlay').classList.remove('show');
-    }
-  });
-});
 
 // Sincroniza badge de pendentes na topbar
 const _origCarregarPendentes = carregarPendentes;
@@ -2287,15 +2370,28 @@ function cobrancaAvancar(contou) {
 }
 
 // ── Configurações — Usuários ──────────────────────────────────────────────────
+const TIPO_BADGE = {
+  admin:      '<span class="badge bg-primary">Admin</span>',
+  mensalista: '<span class="badge bg-warning text-dark">Mensalista</span>',
+  avulso:     '<span class="badge bg-secondary">Avulso</span>',
+};
+
 async function carregarUsuarios() {
   try {
-    const res = await fetch('/api/usuarios', {credentials: 'include'});
-    const lista = await res.json();
+    const lista = await api('GET', '/api/usuarios');
     const fmt = d => d ? new Date(d).toLocaleDateString('pt-BR') : '—';
     document.getElementById('config-usuarios-tbody').innerHTML = lista.map(u => `
       <tr>
         <td class="fw-semibold">${u.nome}</td>
         <td><code>${u.usuario}</code></td>
+        <td>
+          <select class="form-select form-select-sm" style="width:auto;display:inline-block"
+                  onchange="alterarTipoUsuario(${u.id}, this.value)">
+            <option value="admin"      ${u.tipo==='admin'      ?'selected':''}>Admin</option>
+            <option value="mensalista" ${u.tipo==='mensalista' ?'selected':''}>Mensalista</option>
+            <option value="avulso"     ${u.tipo==='avulso'     ?'selected':''}>Avulso</option>
+          </select>
+        </td>
         <td class="text-muted small">${fmt(u.criado_em)}</td>
         <td class="text-end">
           <button class="btn btn-sm btn-outline-secondary me-1" onclick="abrirAlterarSenha(${u.id}, '${u.nome}')">
@@ -2309,9 +2405,17 @@ async function carregarUsuarios() {
   } catch(e) { toast('Erro ao carregar usuários', 'danger'); }
 }
 
+async function alterarTipoUsuario(id, tipo) {
+  try {
+    await api('PUT', `/api/usuarios/${id}/tipo`, {tipo});
+    toast('Tipo atualizado!');
+  } catch(e) { toast(e.message, 'danger'); carregarUsuarios(); }
+}
+
 function abrirModalNovoUsuario() {
   document.getElementById('nu-nome').value = '';
   document.getElementById('nu-usuario').value = '';
+  document.getElementById('nu-tipo').value = 'admin';
   document.getElementById('nu-senha').value = '';
   document.getElementById('nu-erro').classList.add('d-none');
   new bootstrap.Modal(document.getElementById('modalNovoUsuario')).show();
@@ -2320,24 +2424,18 @@ function abrirModalNovoUsuario() {
 async function salvarNovoUsuario() {
   const nome    = document.getElementById('nu-nome').value.trim();
   const usuario = document.getElementById('nu-usuario').value.trim();
+  const tipo    = document.getElementById('nu-tipo').value;
   const senha   = document.getElementById('nu-senha').value;
   const erro    = document.getElementById('nu-erro');
   if (!nome || !usuario || !senha) { erro.textContent = 'Preencha todos os campos.'; erro.classList.remove('d-none'); return; }
   try {
-    const res = await fetch('/api/usuarios', {
-      method: 'POST', credentials: 'include',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({nome, usuario, senha}),
-    });
-    if (!res.ok) {
-      const d = await res.json();
-      const msg = Array.isArray(d.detail) ? d.detail.map(e => e.msg).join(', ') : (d.detail || 'Erro desconhecido');
-      erro.textContent = msg; erro.classList.remove('d-none'); return;
-    }
+    await api('POST', '/api/usuarios', {nome, usuario, tipo, senha});
     bootstrap.Modal.getInstance(document.getElementById('modalNovoUsuario')).hide();
     toast('Usuário criado!', 'success');
     carregarUsuarios();
-  } catch(e) { erro.textContent = 'Erro ao criar usuário.'; erro.classList.remove('d-none'); }
+  } catch(e) {
+    erro.textContent = e.message || 'Erro ao criar usuário.'; erro.classList.remove('d-none');
+  }
 }
 
 function abrirAlterarSenha(id, nome) {
@@ -2379,6 +2477,51 @@ async function excluirUsuario(id, nome) {
   } catch(e) { toast('Erro ao remover usuário', 'danger'); }
 }
 
+// ── Permissões ────────────────────────────────────────────────────────────────
+const MENU_NOMES = {
+  dashboard:  'Dashboard',
+  jogadores:  'Jogadores',
+  jogos:      'Jogos',
+  pagamentos: 'Pagamentos',
+  saidas:     'Saídas',
+  caixa:      'Caixa Geral',
+  pendentes:  'Pendentes',
+  config:     'Configurações',
+};
+
+async function carregarPermissoes() {
+  try {
+    const perms = await api('GET', '/api/permissoes');
+    const tipos = ['admin', 'mensalista', 'avulso'];
+    const slugs = Object.keys(MENU_NOMES);
+    document.getElementById('perm-tbody').innerHTML = slugs.map(slug => `
+      <tr>
+        <td class="fw-semibold">${MENU_NOMES[slug]}</td>
+        ${tipos.map(tipo => {
+          const ok = perms[tipo]?.[slug] ?? false;
+          const disabled = tipo === 'admin' && slug === 'config' ? 'disabled title="Obrigatório para Admin"' : '';
+          return `<td>
+            <div class="form-check form-switch d-inline-block">
+              <input class="form-check-input" type="checkbox" role="switch"
+                     id="perm-${tipo}-${slug}" ${ok ? 'checked' : ''} ${disabled}
+                     onchange="togglePermissao('${tipo}','${slug}',this.checked,this)" />
+            </div>
+          </td>`;
+        }).join('')}
+      </tr>`).join('');
+  } catch(e) { toast('Erro ao carregar permissões', 'danger'); }
+}
+
+async function togglePermissao(tipo, slug, valor, el) {
+  try {
+    await api('PUT', `/api/permissoes/${tipo}/${slug}`, {permitido: valor});
+    toast('Permissão salva!');
+  } catch(e) {
+    el.checked = !valor; // reverte o toggle
+    toast(e.message, 'danger');
+  }
+}
+
 // ── Autenticação ─────────────────────────────────────────────────────────────
 async function fazerLogin() {
   const usuario = document.getElementById('login-usuario').value.trim();
@@ -2403,8 +2546,9 @@ async function fazerLogin() {
       btn.innerHTML = '<i class="bi bi-box-arrow-in-right me-2"></i>Entrar';
       return;
     }
+    const me = await fetch('/api/me', {credentials: 'include'}).then(r => r.json()).catch(() => ({}));
     document.getElementById('login-overlay').classList.add('d-none');
-    iniciarApp();
+    iniciarApp(me.permissoes);
   } catch(e) {
     erro.textContent = 'Erro de conexão. Tente novamente.';
     erro.classList.remove('d-none');
@@ -2422,7 +2566,8 @@ async function fazerLogout() {
   document.getElementById('btn-login').innerHTML = '<i class="bi bi-box-arrow-in-right me-2"></i>Entrar';
 }
 
-function iniciarApp() {
+function iniciarApp(perms) {
+  aplicarPermissoes(perms || {});
   carregarDashboard();
   carregarIP();
   carregarPendentes();
@@ -2434,13 +2579,11 @@ function iniciarApp() {
   try {
     const res = await fetch('/api/me', {credentials: 'include'});
     if (res.ok) {
+      const dados = await res.json();
       document.getElementById('login-overlay').classList.add('d-none');
-      iniciarApp();
+      iniciarApp(dados.permissoes);
     }
-    // Se 401, o overlay já está visível — não faz nada
-  } catch(e) {
-    // Erro de rede: mantém overlay visível
-  }
+  } catch(e) { /* mantém overlay visível */ }
 })();
 </script>
 </body>

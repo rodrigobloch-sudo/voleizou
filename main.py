@@ -8,7 +8,8 @@ from sqlalchemy import extract
 from pydantic import BaseModel
 from typing import Optional, List
 from datetime import date, datetime
-import models, hmac, hashlib, bcrypt
+import models, hmac, hashlib, bcrypt, re, smtplib
+from email.mime.text import MIMEText
 from cryptography.fernet import Fernet, InvalidToken
 from leitor_comprovante import ler_comprovante
 from database import engine, get_db, is_sqlite, SessionLocal
@@ -85,7 +86,9 @@ def _verificar_token(token: str, max_dias: int = 30) -> bool:
         return False
 
 _PUBLICOS_EXATOS   = {"/", "/api/login", "/api/logout", "/api/me",
-                      "/api/comprovante/enviar", "/instalar-certificado", "/voleizou.crt"}
+                      "/api/comprovante/enviar", "/instalar-certificado", "/voleizou.crt",
+                      "/cadastro", "/definir-senha",
+                      "/api/cadastro", "/api/definir-senha-convite", "/api/verificar-convite"}
 _PUBLICOS_PREFIXO  = ("/static/", "/pagar/")
 _PUBLICOS_SUFIXO   = ("/info-pagamento",)
 
@@ -112,10 +115,12 @@ def _migrar():
             ("jogadores", "data_nascimento",  "DATE"),
             ("jogadores", "cpf",             "VARCHAR"),
             ("jogadores", "rg",              "VARCHAR"),
+            ("jogadores", "email",           "VARCHAR"),
             ("jogos",     "categoria",             "VARCHAR"),
             ("jogos",     "mensalistas_ausentes",  "VARCHAR"),
             ("jogos",     "valor",                 "REAL"),
             ("usuarios",  "tipo",                  "VARCHAR"),
+            ("usuarios",  "jogador_id",            "INTEGER"),
         ]
         for tabela, coluna, tipo in migrações:
             try:
@@ -255,6 +260,83 @@ def _migrar_criptografia():
 
 _migrar_criptografia()
 
+# ── Helpers de convite / setup de senha ──────────────────────────────────────
+
+def _gerar_token_setup(usuario_id: int) -> str:
+    payload = f"setup:{usuario_id}:{date.today().toordinal()}"
+    sig = hmac.new(SECRET_KEY.encode(), payload.encode(), hashlib.sha256).hexdigest()
+    return f"{payload}.{sig}"
+
+def _verificar_token_setup(token: str) -> int | None:
+    """Retorna usuario_id se token válido e dentro do prazo, None caso contrário."""
+    try:
+        payload, sig = token.rsplit(".", 1)
+        expected = hmac.new(SECRET_KEY.encode(), payload.encode(), hashlib.sha256).hexdigest()
+        if not hmac.compare_digest(sig, expected):
+            return None
+        parts = payload.split(":")   # ["setup", user_id, ordinal]
+        if len(parts) != 3 or parts[0] != "setup":
+            return None
+        ordinal = int(parts[2])
+        if abs(date.today().toordinal() - ordinal) > 7:   # expira em 7 dias
+            return None
+        return int(parts[1])
+    except Exception:
+        return None
+
+def _gerar_usuario(email: str, db: Session) -> str:
+    """Gera username único a partir do email."""
+    base = re.sub(r'[^a-z0-9._-]', '', email.split("@")[0].lower()) or "jogador"
+    username, i = base, 2
+    while db.query(models.Usuario).filter_by(usuario=username).first():
+        username = f"{base}{i}"; i += 1
+    return username
+
+def _enviar_email(to: str, subject: str, body: str):
+    """Envia email via SMTP. Se não configurado, imprime no log."""
+    host = os.getenv("SMTP_HOST", "")
+    if not host:
+        print(f"\n[EMAIL PARA: {to}]\nAssunto: {subject}\n{body}\n")
+        return
+    port     = int(os.getenv("SMTP_PORT", "587"))
+    user     = os.getenv("SMTP_USER", "")
+    password = os.getenv("SMTP_PASS", "")
+    from_    = os.getenv("SMTP_FROM", user)
+    msg = MIMEText(body, "plain", "utf-8")
+    msg["Subject"] = subject
+    msg["From"]    = from_
+    msg["To"]      = to
+    try:
+        with smtplib.SMTP(host, port, timeout=10) as s:
+            s.starttls()
+            s.login(user, password)
+            s.sendmail(from_, [to], msg.as_string())
+    except Exception as exc:
+        print(f"[EMAIL] Falha ao enviar para {to}: {exc}")
+        raise
+
+def _checar_email_telefone(db: Session, email: str | None, telefone: str | None,
+                            excluir_id: int = None):
+    q_base = db.query(models.Jogador)
+    if excluir_id:
+        q_base = q_base.filter(models.Jogador.id != excluir_id)
+    if email:
+        if q_base.filter(models.Jogador.email == email).first():
+            raise HTTPException(400, "Este e-mail já está cadastrado para outro jogador")
+    if telefone:
+        if q_base.filter(models.Jogador.telefone == telefone).first():
+            raise HTTPException(400, "Este telefone já está cadastrado para outro jogador")
+
+def _usuario_da_sessao(request: Request, db: Session) -> models.Usuario | None:
+    token = request.cookies.get("volei_sessao", "")
+    if not _verificar_token(token):
+        return None
+    try:
+        usuario_str = token.rsplit(".", 1)[0].rsplit(":", 1)[0]
+        return db.query(models.Usuario).filter_by(usuario=usuario_str).first()
+    except Exception:
+        return None
+
 def get_local_ip():
     try:
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -281,6 +363,14 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 @app.get("/")
 def root():
     return FileResponse("static/index.html")
+
+@app.get("/cadastro")
+def pagina_cadastro():
+    return FileResponse("static/cadastro.html")
+
+@app.get("/definir-senha")
+def pagina_definir_senha():
+    return FileResponse("static/definir-senha.html")
 
 
 # ── Login / Logout / Me ───────────────────────────────────────────────────────
@@ -461,6 +551,7 @@ def put_valores(data: ValoresUpdate, db: Session = Depends(get_db)):
 class JogadorCreate(BaseModel):
     nome: str
     tipo: str
+    email: Optional[str] = None
     telefone: Optional[str] = None
     posicao: Optional[str] = None
     numero_camisa: Optional[int] = None
@@ -470,7 +561,8 @@ class JogadorCreate(BaseModel):
 
 class JogadorUpdate(BaseModel):
     nome: Optional[str] = None
-    tipo: Optional[str] = None
+    # tipo não pode ser alterado via PUT — usar PATCH /api/jogadores/{id}/tipo (admin only)
+    email: Optional[str] = None
     telefone: Optional[str] = None
     posicao: Optional[str] = None
     numero_camisa: Optional[int] = None
@@ -478,6 +570,24 @@ class JogadorUpdate(BaseModel):
     cpf: Optional[str] = None
     rg: Optional[str] = None
     ativo: Optional[bool] = None
+
+class CadastroPublico(BaseModel):
+    nome: str
+    email: str
+    telefone: str
+    data_nascimento: date
+    posicao: str
+    rg: str
+    tipo: str   # mensalista | avulso
+    cpf: Optional[str] = None
+    numero_camisa: Optional[int] = None
+
+class DefinirSenhaConvite(BaseModel):
+    token: str
+    senha: str
+
+class TipoUpdate(BaseModel):
+    tipo: str
 
 class JogoCreate(BaseModel):
     data: date
@@ -518,6 +628,7 @@ def listar_jogadores(tipo: Optional[str] = None, db: Session = Depends(get_db)):
     return [
         {
             "id": j.id, "nome": j.nome, "tipo": j.tipo,
+            "email": j.email,
             "telefone": j.telefone, "ativo": j.ativo,
             "posicao": j.posicao,
             "numero_camisa": j.numero_camisa,
@@ -548,6 +659,7 @@ def criar_jogador(data: JogadorCreate, db: Session = Depends(get_db)):
     if data.tipo not in ("mensalista", "avulso"):
         raise HTTPException(400, "tipo deve ser 'mensalista' ou 'avulso'")
     _checar_camisa(db, data.numero_camisa)
+    _checar_email_telefone(db, data.email, data.telefone)
     dados = data.model_dump()
     dados["cpf"] = _encrypt(dados.get("cpf"))
     dados["rg"]  = _encrypt(dados.get("rg"))
@@ -555,7 +667,8 @@ def criar_jogador(data: JogadorCreate, db: Session = Depends(get_db)):
     db.add(j)
     db.commit()
     db.refresh(j)
-    return {"id": j.id, "nome": j.nome, "tipo": j.tipo, "telefone": j.telefone, "ativo": j.ativo,
+    return {"id": j.id, "nome": j.nome, "tipo": j.tipo, "email": j.email,
+            "telefone": j.telefone, "ativo": j.ativo,
             "posicao": j.posicao, "numero_camisa": j.numero_camisa,
             "data_nascimento": j.data_nascimento.isoformat() if j.data_nascimento else None,
             "cpf": _decrypt(j.cpf), "rg": _decrypt(j.rg)}
@@ -566,15 +679,36 @@ def atualizar_jogador(jogador_id: int, data: JogadorUpdate, db: Session = Depend
     if not j:
         raise HTTPException(404, "Jogador não encontrado")
     _checar_camisa(db, data.numero_camisa, excluir_id=jogador_id)
+    _checar_email_telefone(db, data.email, data.telefone, excluir_id=jogador_id)
     for field, value in data.model_dump(exclude_unset=True).items():
         if field in ("cpf", "rg"):
             value = _encrypt(value)
         setattr(j, field, value)
     db.commit()
-    return {"id": j.id, "nome": j.nome, "tipo": j.tipo, "telefone": j.telefone, "ativo": j.ativo,
+    return {"id": j.id, "nome": j.nome, "tipo": j.tipo, "email": j.email,
+            "telefone": j.telefone, "ativo": j.ativo,
             "posicao": j.posicao, "numero_camisa": j.numero_camisa,
             "data_nascimento": j.data_nascimento.isoformat() if j.data_nascimento else None,
             "cpf": _decrypt(j.cpf), "rg": _decrypt(j.rg)}
+
+@app.patch("/api/jogadores/{jogador_id}/tipo")
+def alterar_tipo_jogador(jogador_id: int, data: TipoUpdate,
+                         request: Request, db: Session = Depends(get_db)):
+    u = _usuario_da_sessao(request, db)
+    if not u or u.tipo != "admin":
+        raise HTTPException(403, "Apenas administradores podem alterar a modalidade")
+    if data.tipo not in ("mensalista", "avulso"):
+        raise HTTPException(400, "Modalidade inválida")
+    j = db.query(models.Jogador).filter(models.Jogador.id == jogador_id).first()
+    if not j:
+        raise HTTPException(404, "Jogador não encontrado")
+    j.tipo = data.tipo
+    # Atualiza também o Usuario vinculado, se houver
+    usuario_vinc = db.query(models.Usuario).filter_by(jogador_id=jogador_id).first()
+    if usuario_vinc:
+        usuario_vinc.tipo = data.tipo
+    db.commit()
+    return {"ok": True, "tipo": j.tipo}
 
 @app.delete("/api/jogadores/{jogador_id}")
 def desativar_jogador(jogador_id: int, db: Session = Depends(get_db)):
@@ -600,6 +734,87 @@ def deletar_jogador_permanente(jogador_id: int, db: Session = Depends(get_db)):
     if not j:
         raise HTTPException(404, "Jogador não encontrado")
     db.delete(j)   # cascade apaga pagamentos e participações
+    db.commit()
+    return {"ok": True}
+
+# ── Convite / Auto-cadastro ───────────────────────────────────────────────────
+
+@app.get("/api/convite/link")
+def get_convite_link(request: Request):
+    public_url = os.getenv("PUBLIC_URL", str(request.base_url).rstrip("/"))
+    return {"link": f"{public_url}/cadastro"}
+
+@app.post("/api/cadastro")
+def cadastro_publico(data: CadastroPublico, request: Request, db: Session = Depends(get_db)):
+    if data.tipo not in ("mensalista", "avulso"):
+        raise HTTPException(400, "Modalidade inválida")
+    if not data.email or "@" not in data.email:
+        raise HTTPException(400, "E-mail inválido")
+    _checar_email_telefone(db, data.email, data.telefone)
+
+    # Criar jogador
+    j = models.Jogador(
+        nome=data.nome, tipo=data.tipo, email=data.email,
+        telefone=data.telefone, data_nascimento=data.data_nascimento,
+        posicao=data.posicao, rg=_encrypt(data.rg),
+        cpf=_encrypt(data.cpf) if data.cpf else None,
+        numero_camisa=data.numero_camisa, ativo=True,
+    )
+    db.add(j)
+    db.flush()  # obtém j.id sem commit
+
+    # Gerar username e criar usuário com senha temporária aleatória
+    username = _gerar_usuario(data.email, db)
+    senha_temp = bcrypt.hashpw(os.urandom(32).hex().encode(), bcrypt.gensalt()).decode()
+    u = models.Usuario(nome=data.nome, usuario=username,
+                       senha_hash=senha_temp, tipo=data.tipo,
+                       jogador_id=j.id)
+    db.add(u)
+    db.flush()  # obtém u.id
+
+    token = _gerar_token_setup(u.id)
+    db.commit()
+
+    # Enviar email com link de definição de senha
+    public_url = os.getenv("PUBLIC_URL", str(request.base_url).rstrip("/"))
+    setup_url  = f"{public_url}/definir-senha?token={token}"
+    try:
+        _enviar_email(
+            to=data.email,
+            subject="Bem-vindo ao Voleizou! Defina sua senha de acesso",
+            body=(f"Olá {data.nome}!\n\n"
+                  f"Seu cadastro no Voleizou foi realizado com sucesso.\n"
+                  f"Seu usuário de acesso é: {username}\n\n"
+                  f"Clique no link abaixo para criar sua senha:\n{setup_url}\n\n"
+                  f"O link é válido por 7 dias.\n\nAbraços,\nEquipe Voleizou"),
+        )
+        email_ok = True
+    except Exception:
+        email_ok = False
+
+    return {"ok": True, "usuario": username, "email_enviado": email_ok}
+
+@app.get("/api/verificar-convite")
+def verificar_convite(token: str, db: Session = Depends(get_db)):
+    uid = _verificar_token_setup(token)
+    if not uid:
+        raise HTTPException(400, "Link inválido ou expirado")
+    u = db.query(models.Usuario).filter(models.Usuario.id == uid).first()
+    if not u:
+        raise HTTPException(404, "Usuário não encontrado")
+    return {"ok": True, "nome": u.nome, "usuario": u.usuario}
+
+@app.post("/api/definir-senha-convite")
+def definir_senha_convite(data: DefinirSenhaConvite, db: Session = Depends(get_db)):
+    uid = _verificar_token_setup(data.token)
+    if not uid:
+        raise HTTPException(400, "Link inválido ou expirado")
+    u = db.query(models.Usuario).filter(models.Usuario.id == uid).first()
+    if not u:
+        raise HTTPException(404, "Usuário não encontrado")
+    if len(data.senha) < 6:
+        raise HTTPException(400, "Senha deve ter pelo menos 6 caracteres")
+    u.senha_hash = bcrypt.hashpw(data.senha.encode(), bcrypt.gensalt()).decode()
     db.commit()
     return {"ok": True}
 

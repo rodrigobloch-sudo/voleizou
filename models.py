@@ -16,6 +16,7 @@ class Jogador(Base):
     data_nascimento = Column(Date, nullable=True)
     cpf             = Column(String, nullable=True)
     rg              = Column(String, nullable=True)
+    email           = Column(String, nullable=True, unique=True)
     ativo           = Column(Boolean, default=True)
     criado_em       = Column(DateTime, server_default=func.now())
 
@@ -92,12 +93,13 @@ class Usuario(Base):
     """Usuários administradores do sistema."""
     __tablename__ = "usuarios"
 
-    id         = Column(Integer, primary_key=True, index=True)
-    nome       = Column(String, nullable=False)
-    usuario    = Column(String, nullable=False, unique=True)
-    senha_hash = Column(String, nullable=False)
-    tipo       = Column(String, nullable=False, default="admin")  # admin | mensalista | avulso
-    criado_em  = Column(DateTime, server_default=func.now())
+    id          = Column(Integer, primary_key=True, index=True)
+    nome        = Column(String, nullable=False)
+    usuario     = Column(String, nullable=False, unique=True)
+    senha_hash  = Column(String, nullable=False)
+    tipo        = Column(String, nullable=False, default="admin")  # admin | mensalista | avulso
+    jogador_id  = Column(Integer, ForeignKey("jogadores.id"), nullable=True)
+    criado_em   = Column(DateTime, server_default=func.now())
 
 
 class Permissao(Base):

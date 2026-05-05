@@ -281,7 +281,10 @@
   <div id="page-jogadores" class="page">
     <div class="d-flex justify-content-between align-items-center mb-3">
       <h5 class="fw-bold mb-0">Jogadores</h5>
-      <div class="d-flex gap-2">
+      <div class="d-flex gap-2 flex-wrap">
+        <button class="btn btn-outline-secondary btn-sm" onclick="copiarLinkConvite()" title="Copiar link de cadastro para novos jogadores">
+          <i class="bi bi-link-45deg me-1"></i>Link de convite
+        </button>
         <button class="btn btn-success btn-sm" onclick="abrirCobrancaMassa()">
           <i class="bi bi-whatsapp me-1"></i>Cobrar em massa
         </button>
@@ -308,6 +311,7 @@
             <th>Camisa</th>
             <th>Nascimento</th>
             <th>Telefone</th>
+            <th>E-mail</th>
             <th>Status</th>
             <th></th>
           </tr></thead>
@@ -582,11 +586,18 @@
           <input type="text" class="form-control" id="jogador-nome" />
         </div>
         <div class="mb-3">
-          <label class="form-label">Tipo *</label>
+          <label class="form-label">Modalidade *</label>
           <select class="form-select" id="jogador-tipo">
             <option value="mensalista">Mensalista</option>
             <option value="avulso">Avulso</option>
           </select>
+          <div id="jogador-tipo-aviso" class="form-text d-none text-muted">
+            <i class="bi bi-lock me-1"></i>A modalidade só pode ser alterada pelo admin via botão <i class="bi bi-arrow-left-right"></i>.
+          </div>
+        </div>
+        <div class="mb-3">
+          <label class="form-label">E-mail</label>
+          <input type="email" class="form-control" id="jogador-email" placeholder="email@exemplo.com" />
         </div>
         <div class="mb-3">
           <label class="form-label">Posição <small class="text-muted">(pode marcar mais de uma)</small></label>
@@ -1029,6 +1040,7 @@ function toast(msg, tipo = 'success') {
 
 // ── Navegação ────────────────────────────────────────────────────────────────
 let permissoesGlobais = {};
+let tipoUsuarioLogado = 'admin';
 
 function navegarPara(page) {
   // Checa permissão (mapeia sub-páginas de config para o slug 'config')
@@ -1422,12 +1434,14 @@ function renderJogadores() {
       <td>${j.numero_camisa != null ? '#' + j.numero_camisa : '—'}</td>
       <td>${j.data_nascimento ? fmtDate(j.data_nascimento) : '—'}</td>
       <td>${j.telefone || '—'}</td>
+      <td><small class="text-muted">${j.email || '—'}</small></td>
       <td>${j.ativo ? '<span class="badge bg-success">Ativo</span>' : '<span class="badge bg-secondary">Inativo</span>'}</td>
       <td class="text-end pe-3">
         <button class="btn btn-sm btn-success me-1" title="Enviar link pelo WhatsApp" onclick="enviarWhatsApp(${j.id},'${j.nome.replace(/'/g,"\\'")}','${j.telefone || ''}','${j.tipo}')">
           <i class="bi bi-whatsapp"></i>
         </button>
         <button class="btn btn-sm btn-outline-secondary me-1" onclick="editarJogador(${j.id})"><i class="bi bi-pencil"></i></button>
+        ${tipoUsuarioLogado === 'admin' ? `<button class="btn btn-sm btn-outline-primary me-1" title="Mudar modalidade" onclick="mudarModalidade(${j.id},'${j.nome.replace(/'/g,"\\'")}','${j.tipo}')"><i class="bi bi-arrow-left-right"></i></button>` : ''}
         ${j.ativo
           ? `<button class="btn btn-sm btn-outline-warning me-1" title="Desativar" onclick="desativarJogador(${j.id},'${j.nome.replace(/'/g,"\\'")}')"><i class="bi bi-person-dash"></i></button>`
           : `<button class="btn btn-sm btn-outline-success me-1" title="Reativar" onclick="reativarJogador(${j.id},'${j.nome.replace(/'/g,"\\'")}')"><i class="bi bi-person-check"></i></button>`
@@ -1453,6 +1467,9 @@ function abrirModalJogador() {
   document.getElementById('jogador-id').value = '';
   document.getElementById('jogador-nome').value = '';
   document.getElementById('jogador-tipo').value = 'mensalista';
+  document.getElementById('jogador-tipo').disabled = false;
+  document.getElementById('jogador-tipo-aviso').classList.add('d-none');
+  document.getElementById('jogador-email').value = '';
   setPosicoes('');
   document.getElementById('jogador-camisa').value = '';
   document.getElementById('jogador-nascimento').value = '';
@@ -1469,6 +1486,10 @@ async function editarJogador(id) {
   document.getElementById('jogador-id').value = j.id;
   document.getElementById('jogador-nome').value = j.nome;
   document.getElementById('jogador-tipo').value = j.tipo;
+  // Tipo é read-only na edição — só admin pode mudar via botão específico
+  document.getElementById('jogador-tipo').disabled = true;
+  document.getElementById('jogador-tipo-aviso').classList.remove('d-none');
+  document.getElementById('jogador-email').value = j.email || '';
   setPosicoes(j.posicao || '');
   document.getElementById('jogador-camisa').value = j.numero_camisa != null ? j.numero_camisa : '';
   document.getElementById('jogador-nascimento').value = j.data_nascimento || '';
@@ -1482,17 +1503,20 @@ async function editarJogador(id) {
 async function salvarJogador() {
   const id = document.getElementById('jogador-id').value;
   const camisaVal = document.getElementById('jogador-camisa').value;
-  const nascVal = document.getElementById('jogador-nascimento').value;
+  const nascVal   = document.getElementById('jogador-nascimento').value;
+  const emailVal  = document.getElementById('jogador-email').value.trim();
   const data = {
-    nome: document.getElementById('jogador-nome').value.trim(),
-    tipo: document.getElementById('jogador-tipo').value,
+    nome:     document.getElementById('jogador-nome').value.trim(),
+    email:    emailVal || null,
     telefone: document.getElementById('jogador-telefone').value.trim() || null,
-    posicao: getPosicoes(),
-    numero_camisa: camisaVal ? parseInt(camisaVal) : null,
-    data_nascimento: nascVal || null,
+    posicao:  getPosicoes(),
+    numero_camisa:    camisaVal ? parseInt(camisaVal) : null,
+    data_nascimento:  nascVal || null,
     cpf: document.getElementById('jogador-cpf').value.trim() || null,
-    rg: document.getElementById('jogador-rg').value.trim() || null,
+    rg:  document.getElementById('jogador-rg').value.trim()  || null,
   };
+  // Tipo só vai no payload quando é novo (não está disabled)
+  if (!id) data.tipo = document.getElementById('jogador-tipo').value;
   if (!data.nome) { toast('Nome é obrigatório', 'warning'); return; }
   try {
     if (id) {
@@ -1505,6 +1529,24 @@ async function salvarJogador() {
     bootstrap.Modal.getInstance('#modalJogador').hide();
     carregarJogadores();
   } catch(e) { toast(e.message, 'danger'); }
+}
+
+async function mudarModalidade(id, nome, tipoAtual) {
+  const novo = tipoAtual === 'mensalista' ? 'avulso' : 'mensalista';
+  if (!confirm(`Mudar modalidade de ${nome} de ${tipoAtual} para ${novo}?\n\nIsso afeta cobranças e permissões do usuário.`)) return;
+  try {
+    await api('PATCH', `/api/jogadores/${id}/tipo`, {tipo: novo});
+    toast(`Modalidade de ${nome} alterada para ${novo}`);
+    carregarJogadores();
+  } catch(e) { toast(e.message, 'danger'); }
+}
+
+async function copiarLinkConvite() {
+  try {
+    const {link} = await api('GET', '/api/convite/link');
+    await navigator.clipboard.writeText(link);
+    toast('Link de convite copiado!');
+  } catch(e) { toast('Não foi possível copiar o link', 'danger'); }
 }
 
 async function desativarJogador(id, nome) {
@@ -2664,7 +2706,7 @@ async function fazerLogin() {
     }
     const me = await fetch('/api/me', {credentials: 'include'}).then(r => r.json()).catch(() => ({}));
     document.getElementById('login-overlay').classList.add('d-none');
-    iniciarApp(me.permissoes);
+    iniciarApp(me.permissoes, me.tipo);
   } catch(e) {
     erro.textContent = 'Erro de conexão. Tente novamente.';
     erro.classList.remove('d-none');
@@ -2682,7 +2724,8 @@ async function fazerLogout() {
   document.getElementById('btn-login').innerHTML = '<i class="bi bi-box-arrow-in-right me-2"></i>Entrar';
 }
 
-async function iniciarApp(perms) {
+async function iniciarApp(perms, tipo) {
+  tipoUsuarioLogado = tipo || 'admin';
   aplicarPermissoes(perms || {});
   // Carrega config de valores antes de qualquer cálculo
   try {
@@ -2701,7 +2744,7 @@ async function iniciarApp(perms) {
     if (res.ok) {
       const dados = await res.json();
       document.getElementById('login-overlay').classList.add('d-none');
-      iniciarApp(dados.permissoes);
+      iniciarApp(dados.permissoes, dados.tipo);
     }
   } catch(e) { /* mantém overlay visível */ }
 })();

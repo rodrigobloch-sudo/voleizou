@@ -842,7 +842,20 @@ def cadastro_publico(data: CadastroPublico, request: Request, db: Session = Depe
     except Exception:
         email_ok = False
 
-    return {"ok": True, "usuario": username, "email_enviado": email_ok}
+    resp = {"ok": True, "usuario": username, "email_enviado": email_ok}
+    if not email_ok:
+        resp["setup_url"] = setup_url
+    return resp
+
+@app.get("/api/jogadores/{jogador_id}/link-setup")
+def get_link_setup(jogador_id: int, request: Request, db: Session = Depends(get_db)):
+    """Admin: gera (ou regenera) o link de definição de senha para um jogador."""
+    u = db.query(models.Usuario).filter(models.Usuario.jogador_id == jogador_id).first()
+    if not u:
+        raise HTTPException(404, "Usuário não encontrado para este jogador")
+    token = _gerar_token_setup(u.id)
+    public_url = os.getenv("PUBLIC_URL", str(request.base_url).rstrip("/"))
+    return {"link": f"{public_url}/definir-senha?token={token}", "usuario": u.usuario}
 
 @app.get("/api/verificar-convite")
 def verificar_convite(token: str, db: Session = Depends(get_db)):

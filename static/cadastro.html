@@ -27,8 +27,22 @@
       <div class="card p-4 text-center">
         <i class="bi bi-check-circle-fill text-success" style="font-size:3rem"></i>
         <h5 class="mt-3 fw-bold">Cadastro realizado!</h5>
-        <p class="text-muted mb-1">Um e-mail foi enviado para você com o link para criar sua senha.</p>
-        <p class="text-muted small">Verifique sua caixa de entrada (e o spam).</p>
+        <p class="text-muted mb-1" id="msg-email-ok">Um e-mail foi enviado para você com o link para criar sua senha.</p>
+        <p class="text-muted small" id="msg-email-spam">Verifique sua caixa de entrada (e o spam).</p>
+        <!-- Mostrado quando email não foi enviado -->
+        <div id="aviso-sem-email" class="d-none">
+          <div class="alert alert-warning text-start mt-2">
+            <strong><i class="bi bi-exclamation-triangle me-1"></i>E-mail não enviado.</strong><br />
+            O servidor de e-mail não está configurado. Peça ao administrador para te enviar o link de acesso.<br />
+            <small class="text-muted mt-1 d-block">Ou copie o link abaixo e envie ao jogador:</small>
+          </div>
+          <div class="input-group mt-1">
+            <input type="text" class="form-control form-control-sm text-muted" id="link-setup" readonly />
+            <button class="btn btn-sm btn-outline-secondary" onclick="copiarLink()">
+              <i class="bi bi-clipboard"></i>
+            </button>
+          </div>
+        </div>
         <hr />
         <small class="text-muted">Seu usuário de acesso: <strong id="usuario-gerado"></strong></small>
       </div>
@@ -109,6 +123,15 @@
   </div>
 
   <script>
+    function copiarLink() {
+      const input = document.getElementById('link-setup');
+      if (navigator.clipboard && location.protocol === 'https:') {
+        navigator.clipboard.writeText(input.value).then(() => alert('Link copiado!'));
+      } else {
+        prompt('Copie o link abaixo:', input.value);
+      }
+    }
+
     async function enviarCadastro() {
       const erro = document.getElementById('alerta-erro');
       erro.classList.add('d-none');
@@ -152,6 +175,12 @@
           return;
         }
         document.getElementById('usuario-gerado').textContent = d.usuario;
+        if (!d.email_enviado) {
+          document.getElementById('msg-email-ok').classList.add('d-none');
+          document.getElementById('msg-email-spam').classList.add('d-none');
+          document.getElementById('aviso-sem-email').classList.remove('d-none');
+          if (d.setup_url) document.getElementById('link-setup').value = d.setup_url;
+        }
         document.getElementById('estado-form').classList.add('d-none');
         document.getElementById('estado-sucesso').classList.remove('d-none');
       } catch(e) {

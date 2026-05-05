@@ -1043,7 +1043,7 @@ const fmtDate = s => { const [y,m,d] = s.split('-'); return `${d}/${m}/${y}`; };
 const today = () => new Date().toISOString().split('T')[0];
 
 async function api(method, url, body) {
-  const opts = { method, headers: { 'Content-Type': 'application/json' } };
+  const opts = { method, credentials: 'include', headers: { 'Content-Type': 'application/json' } };
   if (body) opts.body = JSON.stringify(body);
   const res = await fetch(API + url, opts);
   if (!res.ok) {
@@ -1466,7 +1466,7 @@ function renderJogadores() {
           <i class="bi bi-whatsapp"></i>
         </button>
         <button class="btn btn-sm btn-outline-secondary me-1" onclick="editarJogador(${j.id})"><i class="bi bi-pencil"></i></button>
-        ${tipoUsuarioLogado === 'admin' ? `<button class="btn btn-sm btn-outline-primary me-1" title="Mudar modalidade" onclick="mudarModalidade(${j.id},'${j.nome.replace(/'/g,"\\'")}','${j.tipo}')"><i class="bi bi-arrow-left-right"></i></button>` : ''}
+        ${tipoUsuarioLogado === 'admin' ? `<button class="btn btn-sm btn-outline-primary me-1" title="Mudar modalidade" onclick="mudarModalidade(${j.id},'${j.nome.replace(/'/g,"\\'")}','${j.tipo}')"><i class="bi bi-arrow-left-right"></i></button><button class="btn btn-sm btn-outline-secondary me-1" title="Link de definição de senha" onclick="verLinkSetup(${j.id},'${j.nome.replace(/'/g,"\\'")}')"><i class="bi bi-key"></i></button>` : ''}
         ${j.ativo
           ? `<button class="btn btn-sm btn-outline-warning me-1" title="Desativar" onclick="desativarJogador(${j.id},'${j.nome.replace(/'/g,"\\'")}')"><i class="bi bi-person-dash"></i></button>`
           : `<button class="btn btn-sm btn-outline-success me-1" title="Reativar" onclick="reativarJogador(${j.id},'${j.nome.replace(/'/g,"\\'")}')"><i class="bi bi-person-check"></i></button>`
@@ -1566,12 +1566,32 @@ async function mudarModalidade(id, nome, tipoAtual) {
   } catch(e) { toast(e.message, 'danger'); }
 }
 
+async function verLinkSetup(id, nome) {
+  try {
+    const d = await api('GET', `/api/jogadores/${id}/link-setup`);
+    const link = d.link;
+    if (navigator.clipboard && location.protocol === 'https:') {
+      await navigator.clipboard.writeText(link);
+      toast(`Link de senha de ${nome} copiado!`);
+    } else {
+      prompt(`Link de definição de senha de ${nome} (usuário: ${d.usuario}):`, link);
+    }
+  } catch(e) { toast(e.message || 'Jogador sem usuário cadastrado', 'warning'); }
+}
+
 async function copiarLinkConvite() {
   try {
     const {link} = await api('GET', '/api/convite/link');
-    await navigator.clipboard.writeText(link);
-    toast('Link de convite copiado!');
-  } catch(e) { toast('Não foi possível copiar o link', 'danger'); }
+    if (navigator.clipboard && location.protocol === 'https:') {
+      await navigator.clipboard.writeText(link);
+      toast('Link de convite copiado!');
+    } else {
+      // HTTP context: show link in a prompt so admin can copy manually
+      prompt('Copie o link de convite abaixo:', link);
+    }
+  } catch(e) {
+    toast('Não foi possível obter o link de convite', 'danger');
+  }
 }
 
 async function desativarJogador(id, nome) {

@@ -585,6 +585,24 @@ def desativar_jogador(jogador_id: int, db: Session = Depends(get_db)):
     db.commit()
     return {"ok": True}
 
+@app.patch("/api/jogadores/{jogador_id}/reativar")
+def reativar_jogador(jogador_id: int, db: Session = Depends(get_db)):
+    j = db.query(models.Jogador).filter(models.Jogador.id == jogador_id).first()
+    if not j:
+        raise HTTPException(404, "Jogador não encontrado")
+    j.ativo = True
+    db.commit()
+    return {"ok": True}
+
+@app.delete("/api/jogadores/{jogador_id}/permanente")
+def deletar_jogador_permanente(jogador_id: int, db: Session = Depends(get_db)):
+    j = db.query(models.Jogador).filter(models.Jogador.id == jogador_id).first()
+    if not j:
+        raise HTTPException(404, "Jogador não encontrado")
+    db.delete(j)   # cascade apaga pagamentos e participações
+    db.commit()
+    return {"ok": True}
+
 
 # ── Jogos ─────────────────────────────────────────────────────────────────────
 

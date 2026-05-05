@@ -1428,7 +1428,11 @@ function renderJogadores() {
           <i class="bi bi-whatsapp"></i>
         </button>
         <button class="btn btn-sm btn-outline-secondary me-1" onclick="editarJogador(${j.id})"><i class="bi bi-pencil"></i></button>
-        ${j.ativo ? `<button class="btn btn-sm btn-outline-danger" onclick="desativarJogador(${j.id},'${j.nome}')"><i class="bi bi-person-dash"></i></button>` : ''}
+        ${j.ativo
+          ? `<button class="btn btn-sm btn-outline-warning me-1" title="Desativar" onclick="desativarJogador(${j.id},'${j.nome.replace(/'/g,"\\'")}')"><i class="bi bi-person-dash"></i></button>`
+          : `<button class="btn btn-sm btn-outline-success me-1" title="Reativar" onclick="reativarJogador(${j.id},'${j.nome.replace(/'/g,"\\'")}')"><i class="bi bi-person-check"></i></button>`
+        }
+        <button class="btn btn-sm btn-outline-danger" title="Excluir permanentemente" onclick="deletarJogador(${j.id},'${j.nome.replace(/'/g,"\\'")}')"><i class="bi bi-trash"></i></button>
       </td>
     </tr>`).join('');
 }
@@ -1504,10 +1508,28 @@ async function salvarJogador() {
 }
 
 async function desativarJogador(id, nome) {
-  if (!confirm(`Desativar ${nome}?`)) return;
+  if (!confirm(`Desativar ${nome}?\nEle ficará inativo mas o histórico é mantido.`)) return;
   try {
     await api('DELETE', `/api/jogadores/${id}`);
     toast('Jogador desativado');
+    carregarJogadores();
+  } catch(e) { toast(e.message, 'danger'); }
+}
+
+async function reativarJogador(id, nome) {
+  if (!confirm(`Reativar ${nome}?`)) return;
+  try {
+    await api('PATCH', `/api/jogadores/${id}/reativar`);
+    toast('Jogador reativado');
+    carregarJogadores();
+  } catch(e) { toast(e.message, 'danger'); }
+}
+
+async function deletarJogador(id, nome) {
+  if (!confirm(`EXCLUIR PERMANENTEMENTE ${nome}?\n\nEsta ação não pode ser desfeita.\nTodos os pagamentos e presenças deste jogador serão apagados.`)) return;
+  try {
+    await api('DELETE', `/api/jogadores/${id}/permanente`);
+    toast(`${nome} excluído permanentemente`, 'warning');
     carregarJogadores();
   } catch(e) { toast(e.message, 'danger'); }
 }

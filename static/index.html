@@ -621,12 +621,22 @@
           </select>
         </div>
         <div class="mb-3" id="jogo-valor-wrap" style="display:none">
-          <label class="form-label fw-semibold">Valor por participante <span class="text-danger">*</span></label>
-          <div class="input-group">
+          <label class="form-label fw-semibold">Valor total do evento <span class="text-danger">*</span></label>
+          <div class="input-group mb-2">
             <span class="input-group-text">R$</span>
-            <input type="number" class="form-control" id="jogo-valor" placeholder="0,00" step="0.01" min="0" />
+            <input type="number" class="form-control" id="jogo-valor" placeholder="0,00"
+                   step="0.01" min="0" oninput="atualizarValorCabeca()" />
           </div>
-          <div class="form-text">Valor que será cobrado de cada participante deste evento.</div>
+          <div class="d-flex justify-content-between align-items-center bg-light rounded px-3 py-2">
+            <small class="text-muted">
+              <i class="bi bi-people me-1"></i>Participantes: <span id="jogo-n-part">—</span>
+            </small>
+            <div class="text-end">
+              <small class="text-muted d-block">Valor por jogador</small>
+              <strong class="text-success" id="jogo-valor-cabeca">R$ —</strong>
+            </div>
+          </div>
+          <div class="form-text">O valor por jogador é recalculado conforme os participantes mudam.</div>
         </div>
         <div class="mb-3">
           <label class="form-label">Observação</label>
@@ -1505,7 +1515,7 @@ function renderCardJogo(j) {
         <div>
           <h6 class="mb-1 fw-bold"><i class="bi bi-calendar-event me-2 text-primary"></i>${fmtDate(j.data)}</h6>
           ${j.categoria ? `<span class="badge ${catColor} me-2 mb-1">${j.categoria}</span>` : ''}
-          ${j.valor ? `<span class="badge bg-light text-success border border-success me-2 mb-1"><i class="bi bi-cash me-1"></i>R$ ${Number(j.valor).toFixed(2).replace('.',',')}/pessoa</span>` : ''}
+          ${j.valor && totalParticipantes > 0 ? `<span class="badge bg-light text-success border border-success me-2 mb-1"><i class="bi bi-cash me-1"></i>R$ ${(j.valor/totalParticipantes).toFixed(2).replace('.',',')}/pessoa <span class="opacity-75">· total R$ ${Number(j.valor).toFixed(2).replace('.',',')}</span></span>` : j.valor ? `<span class="badge bg-light text-success border border-success me-2 mb-1"><i class="bi bi-cash me-1"></i>Total R$ ${Number(j.valor).toFixed(2).replace('.',',')}</span>` : ''}
           ${j.observacao ? `<small class="text-muted">${j.observacao}</small>` : ''}
         </div>
         <div class="d-flex align-items-center gap-2 flex-wrap">
@@ -1564,11 +1574,23 @@ function renderJogos() {
   div.innerHTML = html;
 }
 
+let _jogoNParticipantes = 0;
+
+function atualizarValorCabeca() {
+  const total = parseFloat(document.getElementById('jogo-valor').value) || 0;
+  const n = _jogoNParticipantes;
+  document.getElementById('jogo-n-part').textContent = n || '—';
+  const cabeca = n > 0 && total > 0 ? total / n : 0;
+  document.getElementById('jogo-valor-cabeca').textContent =
+    cabeca > 0 ? 'R$ ' + cabeca.toFixed(2).replace('.', ',') : 'R$ —';
+}
+
 function jogoCategoriaMudou() {
   const cat = document.getElementById('jogo-categoria').value;
   const precisaValor = cat && cat !== 'Jogo Semanal';
   document.getElementById('jogo-valor-wrap').style.display = precisaValor ? '' : 'none';
   if (!precisaValor) document.getElementById('jogo-valor').value = '';
+  atualizarValorCabeca();
 }
 
 function abrirModalJogo() {
@@ -1579,6 +1601,9 @@ function abrirModalJogo() {
   document.getElementById('jogo-valor').value = '';
   document.getElementById('jogo-valor-wrap').style.display = 'none';
   document.getElementById('modalJogoTitulo').textContent = 'Novo jogo';
+  // Estimativa: todos os mensalistas ativos
+  _jogoNParticipantes = mensalistasAtivos.length;
+  atualizarValorCabeca();
   new bootstrap.Modal('#modalJogo').show();
 }
 
@@ -1590,6 +1615,10 @@ function editarJogo(id) {
   document.getElementById('jogo-categoria').value = j.categoria || '';
   document.getElementById('jogo-obs').value = j.observacao || '';
   document.getElementById('jogo-valor').value = j.valor || '';
+  // Participantes reais: mensalistas presentes + avulsos
+  const ausentes = j.mensalistas_ausentes || [];
+  const mensPresentes = mensalistasAtivos.filter(m => !ausentes.includes(m.id)).length;
+  _jogoNParticipantes = mensPresentes + (j.avulsos || []).length;
   jogoCategoriaMudou();
   document.getElementById('modalJogoTitulo').textContent = 'Editar jogo';
   new bootstrap.Modal('#modalJogo').show();
@@ -2248,8 +2277,12 @@ async function cobrancaSelecionarJogo(jogoId) {
   const ausentes    = jogo.mensalistas_ausentes || [];
   const isSemanal   = (jogo.categoria || '') === 'Jogo Semanal' || !jogo.categoria;
   const refData     = fmtDate(jogo.data);
-  const valorEvento = jogo.valor || null;  // valor por participante definido no evento
   const lista       = [];
+
+  // Calcular valor por pessoa (jogo.valor é o total do evento)
+  const mensalistasPresentes = jogadores.filter(j => j.ativo && j.tipo === 'mensalista' && !ausentes.includes(j.id));
+  const totalPartEvento = mensalistasPresentes.length + (jogo.avulsos || []).length;
+  const valorEvento = jogo.valor && totalPartEvento > 0 ? jogo.valor / totalPartEvento : null;
 
   // Mensalistas presentes no jogo
   const statusMens = {};

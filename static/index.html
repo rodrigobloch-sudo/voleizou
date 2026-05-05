@@ -568,13 +568,21 @@
         </div>
         <div class="mb-3">
           <label class="form-label">Categoria</label>
-          <select class="form-select" id="jogo-categoria">
+          <select class="form-select" id="jogo-categoria" onchange="jogoCategoriaMudou()">
             <option value="">— Selecione —</option>
             <option>Jogo Semanal</option>
             <option>Amistoso</option>
             <option>Torneios Diversos</option>
             <option>Liga Semestral/Anual</option>
           </select>
+        </div>
+        <div class="mb-3" id="jogo-valor-wrap" style="display:none">
+          <label class="form-label fw-semibold">Valor por participante <span class="text-danger">*</span></label>
+          <div class="input-group">
+            <span class="input-group-text">R$</span>
+            <input type="number" class="form-control" id="jogo-valor" placeholder="0,00" step="0.01" min="0" />
+          </div>
+          <div class="form-text">Valor que será cobrado de cada participante deste evento.</div>
         </div>
         <div class="mb-3">
           <label class="form-label">Observação</label>
@@ -1405,6 +1413,7 @@ function renderCardJogo(j) {
         <div>
           <h6 class="mb-1 fw-bold"><i class="bi bi-calendar-event me-2 text-primary"></i>${fmtDate(j.data)}</h6>
           ${j.categoria ? `<span class="badge ${catColor} me-2 mb-1">${j.categoria}</span>` : ''}
+          ${j.valor ? `<span class="badge bg-light text-success border border-success me-2 mb-1"><i class="bi bi-cash me-1"></i>R$ ${Number(j.valor).toFixed(2).replace('.',',')}/pessoa</span>` : ''}
           ${j.observacao ? `<small class="text-muted">${j.observacao}</small>` : ''}
         </div>
         <div class="d-flex align-items-center gap-2 flex-wrap">
@@ -1463,11 +1472,20 @@ function renderJogos() {
   div.innerHTML = html;
 }
 
+function jogoCategoriaMudou() {
+  const cat = document.getElementById('jogo-categoria').value;
+  const precisaValor = cat && cat !== 'Jogo Semanal';
+  document.getElementById('jogo-valor-wrap').style.display = precisaValor ? '' : 'none';
+  if (!precisaValor) document.getElementById('jogo-valor').value = '';
+}
+
 function abrirModalJogo() {
   document.getElementById('jogo-id').value = '';
   document.getElementById('jogo-data').value = today();
   document.getElementById('jogo-categoria').value = '';
   document.getElementById('jogo-obs').value = '';
+  document.getElementById('jogo-valor').value = '';
+  document.getElementById('jogo-valor-wrap').style.display = 'none';
   document.getElementById('modalJogoTitulo').textContent = 'Novo jogo';
   new bootstrap.Modal('#modalJogo').show();
 }
@@ -1479,18 +1497,25 @@ function editarJogo(id) {
   document.getElementById('jogo-data').value = j.data;
   document.getElementById('jogo-categoria').value = j.categoria || '';
   document.getElementById('jogo-obs').value = j.observacao || '';
+  document.getElementById('jogo-valor').value = j.valor || '';
+  jogoCategoriaMudou();
   document.getElementById('modalJogoTitulo').textContent = 'Editar jogo';
   new bootstrap.Modal('#modalJogo').show();
 }
 
 async function salvarJogo() {
-  const id = document.getElementById('jogo-id').value;
+  const id   = document.getElementById('jogo-id').value;
   const data = document.getElementById('jogo-data').value;
+  const cat  = document.getElementById('jogo-categoria').value || null;
   if (!data) { toast('Data é obrigatória', 'warning'); return; }
+  const precisaValor = cat && cat !== 'Jogo Semanal';
+  const valorStr = document.getElementById('jogo-valor').value;
+  if (precisaValor && !valorStr) { toast('Informe o valor por participante', 'warning'); return; }
   const payload = {
     data,
-    categoria: document.getElementById('jogo-categoria').value || null,
+    categoria: cat,
     observacao: document.getElementById('jogo-obs').value || null,
+    valor: valorStr ? parseFloat(valorStr) : null,
   };
   try {
     if (id) {
@@ -2140,6 +2165,7 @@ async function cobrancaSelecionarJogo(jogoId) {
   const ausentes    = jogo.mensalistas_ausentes || [];
   const isSemanal   = (jogo.categoria || '') === 'Jogo Semanal' || !jogo.categoria;
   const refData     = fmtDate(jogo.data);
+  const valorEvento = jogo.valor || null;  // valor por participante definido no evento
   const lista       = [];
 
   // Mensalistas presentes no jogo
@@ -2154,7 +2180,9 @@ async function cobrancaSelecionarJogo(jogoId) {
       id: j.id, nome: j.nome, tipo: 'mensalista',
       telefone: j.telefone || '',
       status: statusMens[j.id] || 'em_aberto',
-      valor_devido: isSemanal ? (statusMens[j.id] === 'parcial' ? dash.mensalistas_lista.find(m=>m.id===j.id)?.valor_falta : 120) : null,
+      valor_devido: isSemanal
+        ? (statusMens[j.id] === 'parcial' ? dash.mensalistas_lista.find(m=>m.id===j.id)?.valor_falta : 120)
+        : valorEvento,
       ref: isSemanal ? `${MESES[mes]} ${ano}` : refData,
     });
   });
@@ -2163,12 +2191,11 @@ async function cobrancaSelecionarJogo(jogoId) {
   jogo.avulsos.forEach(a => {
     const jog = jogadores.find(j => j.id === a.id);
     if (!jog) return;
-    const resumo = dash.avulsos_resumo.find(r => r.id === a.id);
     lista.push({
       id: a.id, nome: a.nome, tipo: 'avulso',
       telefone: jog.telefone || '',
       status: 'em_aberto',
-      valor_devido: 35,
+      valor_devido: isSemanal ? 35 : valorEvento,
       ref: refData,
     });
   });

@@ -30,6 +30,7 @@ class Jogo(Base):
     data                 = Column(Date, nullable=False)
     categoria            = Column(String, nullable=True)
     observacao           = Column(String, nullable=True)
+    valor                = Column(Float, nullable=True)   # valor por participante (não usado em Jogo Semanal)
     mensalistas_ausentes = Column(String, nullable=True)  # IDs separados por vírgula
     criado_em            = Column(DateTime, server_default=func.now())
 

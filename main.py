@@ -100,6 +100,7 @@ def _migrar():
             ("jogadores", "rg",              "VARCHAR"),
             ("jogos",     "categoria",             "VARCHAR"),
             ("jogos",     "mensalistas_ausentes",  "VARCHAR"),
+            ("jogos",     "valor",                 "REAL"),
         ]
         for tabela, coluna, tipo in migrações:
             try:
@@ -330,6 +331,7 @@ class JogoCreate(BaseModel):
     data: date
     categoria: Optional[str] = None
     observacao: Optional[str] = None
+    valor: Optional[float] = None
 
 class ParticipacaoCreate(BaseModel):
     jogador_id: int
@@ -453,6 +455,7 @@ def listar_jogos(db: Session = Depends(get_db)):
             "data": jogo.data.isoformat(),
             "categoria": jogo.categoria,
             "observacao": jogo.observacao,
+            "valor": jogo.valor,
             "avulsos": avulsos,
             "total_avulsos": len(avulsos),
             "mensalistas_ausentes": ausentes,
@@ -461,12 +464,11 @@ def listar_jogos(db: Session = Depends(get_db)):
 
 @app.post("/api/jogos", status_code=201)
 def criar_jogo(data: JogoCreate, db: Session = Depends(get_db)):
-    # Permite múltiplos eventos na mesma data (ex: jogo semanal + amistoso)
     jogo = models.Jogo(**data.model_dump())
     db.add(jogo)
     db.commit()
     db.refresh(jogo)
-    return {"id": jogo.id, "data": jogo.data.isoformat(), "categoria": jogo.categoria, "observacao": jogo.observacao}
+    return {"id": jogo.id, "data": jogo.data.isoformat(), "categoria": jogo.categoria, "observacao": jogo.observacao, "valor": jogo.valor}
 
 @app.get("/api/jogos/{jogo_id}")
 def obter_jogo(jogo_id: int, db: Session = Depends(get_db)):
@@ -479,7 +481,7 @@ def obter_jogo(jogo_id: int, db: Session = Depends(get_db)):
     ]
     ausentes = [int(x) for x in (jogo.mensalistas_ausentes or '').split(',') if x.strip()]
     return {"id": jogo.id, "data": jogo.data.isoformat(), "categoria": jogo.categoria,
-            "observacao": jogo.observacao, "avulsos": avulsos, "mensalistas_ausentes": ausentes}
+            "observacao": jogo.observacao, "valor": jogo.valor, "avulsos": avulsos, "mensalistas_ausentes": ausentes}
 
 @app.put("/api/jogos/{jogo_id}")
 def atualizar_jogo(jogo_id: int, data: JogoCreate, db: Session = Depends(get_db)):
@@ -489,8 +491,9 @@ def atualizar_jogo(jogo_id: int, data: JogoCreate, db: Session = Depends(get_db)
     jogo.data = data.data
     jogo.categoria = data.categoria
     jogo.observacao = data.observacao
+    jogo.valor = data.valor
     db.commit()
-    return {"id": jogo.id, "data": jogo.data.isoformat(), "categoria": jogo.categoria, "observacao": jogo.observacao}
+    return {"id": jogo.id, "data": jogo.data.isoformat(), "categoria": jogo.categoria, "observacao": jogo.observacao, "valor": jogo.valor}
 
 @app.put("/api/jogos/{jogo_id}/presencas")
 def atualizar_presencas(jogo_id: int, data: PresencasUpdate, db: Session = Depends(get_db)):
@@ -793,7 +796,7 @@ def dashboard(mes: Optional[int] = None, ano: Optional[int] = None, db: Session 
         "mes_nome": f"{MESES_PT[mes]} {ano}",
         "mensalistas_lista": mensalistas_lista,
         "avulsos_resumo": avulsos_resumo,
-        "jogos_mes": [{"id": j.id, "data": j.data.isoformat(), "categoria": j.categoria, "observacao": j.observacao} for j in todos_jogos_mes],
+        "jogos_mes": [{"id": j.id, "data": j.data.isoformat(), "categoria": j.categoria, "observacao": j.observacao, "valor": j.valor} for j in todos_jogos_mes],
         "aniversariantes": aniversariantes,
         "presencas_mes": presencas_mes,
         "total_jogos_passados": total_jogos_passados,

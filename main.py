@@ -27,7 +27,7 @@ ENCRYPTION_KEY  = os.getenv("ENCRYPTION_KEY",  "")
 # Menus do sistema — adicione aqui sempre que criar uma nova seção
 MENUS_SLUGS = [
     "dashboard", "jogadores", "jogos", "pagamentos",
-    "saidas", "caixa", "pendentes", "config",
+    "saidas", "caixa", "pendencias", "pendentes", "config",
     "config-valores",
 ]
 
@@ -119,6 +119,7 @@ def _migrar():
             ("jogos",     "categoria",             "VARCHAR"),
             ("jogos",     "mensalistas_ausentes",  "VARCHAR"),
             ("jogos",     "valor",                 "REAL"),
+            ("jogos",     "status",                "VARCHAR"),
             ("usuarios",  "tipo",                  "VARCHAR"),
             ("usuarios",  "jogador_id",            "INTEGER"),
         ]
@@ -326,6 +327,47 @@ def _checar_email_telefone(db: Session, email: str | None, telefone: str | None,
     if telefone:
         if q_base.filter(models.Jogador.telefone == telefone).first():
             raise HTTPException(400, "Este telefone já está cadastrado para outro jogador")
+
+def _status_efetivo(data_jogo, status_raw: str | None) -> str:
+    """Retorna o status real do jogo, aplicando regra de auto-Realizado para datas passadas."""
+    s = status_raw or "Planejado"
+    if s in ("Planejado", "Confirmado") and data_jogo < date.today():
+        return "Realizado"
+    return s
+
+def _gerar_pendencias_jogo(db: Session, jogo: models.Jogo):
+    """Cria Pendencia para cada participante de um jogo confirmado não-semanal com valor."""
+    cat = (jogo.categoria or "").strip()
+    if not jogo.valor or cat == "Jogo Semanal" or not cat:
+        return
+    ausentes = [int(x) for x in (jogo.mensalistas_ausentes or "").split(",") if x.strip()]
+    mensalistas = db.query(models.Jogador).filter(
+        models.Jogador.tipo == "mensalista", models.Jogador.ativo == True
+    ).all()
+    presentes   = [m for m in mensalistas if m.id not in ausentes]
+    avulsos     = [p.jogador for p in jogo.participacoes]
+    participantes = presentes + avulsos
+    n = len(participantes)
+    if n == 0:
+        return
+    valor_pessoa = round(jogo.valor / n, 2)
+    from sqlalchemy.exc import IntegrityError
+    for j in participantes:
+        existe = db.query(models.Pendencia).filter_by(jogador_id=j.id, jogo_id=jogo.id).first()
+        if existe:
+            existe.valor = valor_pessoa   # atualiza se participantes mudaram
+            continue
+        p = models.Pendencia(
+            jogador_id=j.id, jogo_id=jogo.id, tipo="evento",
+            descricao=f"{cat} — {jogo.data.strftime('%d/%m/%Y')}",
+            valor=valor_pessoa,
+            referencia=jogo.data.isoformat(),
+        )
+        db.add(p)
+    try:
+        db.flush()
+    except IntegrityError:
+        db.rollback()
 
 def _usuario_da_sessao(request: Request, db: Session) -> models.Usuario | None:
     token = request.cookies.get("volei_sessao", "")
@@ -594,6 +636,14 @@ class JogoCreate(BaseModel):
     categoria: Optional[str] = None
     observacao: Optional[str] = None
     valor: Optional[float] = None
+    status: Optional[str] = "Planejado"
+
+class JogoUpdate(BaseModel):
+    data: Optional[date] = None
+    categoria: Optional[str] = None
+    observacao: Optional[str] = None
+    valor: Optional[float] = None
+    status: Optional[str] = None
 
 class ParticipacaoCreate(BaseModel):
     jogador_id: int
@@ -821,64 +871,55 @@ def definir_senha_convite(data: DefinirSenhaConvite, db: Session = Depends(get_d
 
 # ── Jogos ─────────────────────────────────────────────────────────────────────
 
+def _jogo_dict(jogo) -> dict:
+    avulsos = [{"id": p.jogador.id, "nome": p.jogador.nome, "participacao_id": p.id}
+               for p in jogo.participacoes]
+    ausentes = [int(x) for x in (jogo.mensalistas_ausentes or '').split(',') if x.strip()]
+    return {
+        "id": jogo.id, "data": jogo.data.isoformat(),
+        "categoria": jogo.categoria, "observacao": jogo.observacao,
+        "valor": jogo.valor, "status": jogo.status or "Planejado",
+        "status_efetivo": _status_efetivo(jogo.data, jogo.status),
+        "avulsos": avulsos, "total_avulsos": len(avulsos),
+        "mensalistas_ausentes": ausentes,
+    }
+
 @app.get("/api/jogos")
 def listar_jogos(db: Session = Depends(get_db)):
     jogos = db.query(models.Jogo).order_by(models.Jogo.data.asc()).all()
-    result = []
-    for jogo in jogos:
-        avulsos = [
-            {
-                "id": p.jogador.id,
-                "nome": p.jogador.nome,
-                "participacao_id": p.id,
-            }
-            for p in jogo.participacoes
-        ]
-        ausentes = [int(x) for x in (jogo.mensalistas_ausentes or '').split(',') if x.strip()]
-        result.append({
-            "id": jogo.id,
-            "data": jogo.data.isoformat(),
-            "categoria": jogo.categoria,
-            "observacao": jogo.observacao,
-            "valor": jogo.valor,
-            "avulsos": avulsos,
-            "total_avulsos": len(avulsos),
-            "mensalistas_ausentes": ausentes,
-        })
-    return result
+    return [_jogo_dict(j) for j in jogos]
 
 @app.post("/api/jogos", status_code=201)
 def criar_jogo(data: JogoCreate, db: Session = Depends(get_db)):
     jogo = models.Jogo(**data.model_dump())
     db.add(jogo)
+    db.flush()
+    if (jogo.status == "Confirmado"):
+        _gerar_pendencias_jogo(db, jogo)
     db.commit()
     db.refresh(jogo)
-    return {"id": jogo.id, "data": jogo.data.isoformat(), "categoria": jogo.categoria, "observacao": jogo.observacao, "valor": jogo.valor}
+    return _jogo_dict(jogo)
 
 @app.get("/api/jogos/{jogo_id}")
 def obter_jogo(jogo_id: int, db: Session = Depends(get_db)):
     jogo = db.query(models.Jogo).filter(models.Jogo.id == jogo_id).first()
     if not jogo:
         raise HTTPException(404, "Jogo não encontrado")
-    avulsos = [
-        {"id": p.jogador.id, "nome": p.jogador.nome, "participacao_id": p.id}
-        for p in jogo.participacoes
-    ]
-    ausentes = [int(x) for x in (jogo.mensalistas_ausentes or '').split(',') if x.strip()]
-    return {"id": jogo.id, "data": jogo.data.isoformat(), "categoria": jogo.categoria,
-            "observacao": jogo.observacao, "valor": jogo.valor, "avulsos": avulsos, "mensalistas_ausentes": ausentes}
+    return _jogo_dict(jogo)
 
 @app.put("/api/jogos/{jogo_id}")
-def atualizar_jogo(jogo_id: int, data: JogoCreate, db: Session = Depends(get_db)):
+def atualizar_jogo(jogo_id: int, data: JogoUpdate, db: Session = Depends(get_db)):
     jogo = db.query(models.Jogo).filter(models.Jogo.id == jogo_id).first()
     if not jogo:
         raise HTTPException(404, "Jogo não encontrado")
-    jogo.data = data.data
-    jogo.categoria = data.categoria
-    jogo.observacao = data.observacao
-    jogo.valor = data.valor
+    status_anterior = jogo.status or "Planejado"
+    for field, value in data.model_dump(exclude_unset=True).items():
+        setattr(jogo, field, value)
+    # Gera pendências ao confirmar (apenas não-semanal com valor)
+    if jogo.status == "Confirmado" and status_anterior != "Confirmado":
+        _gerar_pendencias_jogo(db, jogo)
     db.commit()
-    return {"id": jogo.id, "data": jogo.data.isoformat(), "categoria": jogo.categoria, "observacao": jogo.observacao, "valor": jogo.valor}
+    return _jogo_dict(jogo)
 
 @app.put("/api/jogos/{jogo_id}/presencas")
 def atualizar_presencas(jogo_id: int, data: PresencasUpdate, db: Session = Depends(get_db)):
@@ -1202,7 +1243,7 @@ def pagina_pagar(jogador_id: int):
 
 @app.get("/api/jogadores/{jogador_id}/info-pagamento")
 def info_pagamento_jogador(jogador_id: int, db: Session = Depends(get_db)):
-    """Retorna info do jogador para a página de pagamento."""
+    """Retorna info do jogador para a página de pagamento, incluindo pendências abertas."""
     j = db.query(models.Jogador).filter(
         models.Jogador.id == jogador_id,
         models.Jogador.ativo == True
@@ -1213,15 +1254,59 @@ def info_pagamento_jogador(jogador_id: int, db: Session = Depends(get_db)):
     hoje = date.today()
     mes, ano = hoje.month, hoje.year
     cfg = _get_config(db)
-    valor_devido = cfg["valor_mensalidade"] if j.tipo == "mensalista" else cfg["valor_avulso"]
+    VALOR_MENSALIDADE = cfg["valor_mensalidade"]
+    VALOR_AVULSO = cfg["valor_avulso"]
+
+    pendencias_abertas = []
+
+    if j.tipo == "mensalista":
+        # Verifica últimos 3 meses
+        for delta in range(2, -1, -1):
+            m = mes - delta
+            y = ano
+            if m <= 0: m += 12; y -= 1
+            pags = db.query(models.Pagamento).filter(
+                models.Pagamento.jogador_id == j.id,
+                models.Pagamento.tipo == "mensalidade",
+                extract("month", models.Pagamento.data_pagamento) == m,
+                extract("year",  models.Pagamento.data_pagamento) == y,
+            ).all()
+            pago = sum(p.valor for p in pags if not (p.observacao or "").startswith("PENDENTE|"))
+            falta = round(VALOR_MENSALIDADE - pago, 2)
+            if falta > 0:
+                MESES_PT = ["","Janeiro","Fevereiro","Março","Abril","Maio","Junho",
+                            "Julho","Agosto","Setembro","Outubro","Novembro","Dezembro"]
+                pendencias_abertas.append({
+                    "id": None, "tipo": "mensalidade",
+                    "descricao": f"Mensalidade {MESES_PT[m]} {y}",
+                    "valor": falta, "referencia": f"{y}-{m:02d}",
+                })
+    else:
+        # Avulso: verifica jogos do mês sem pagamento
+        pass  # avulso usa fluxo simples de valor total
+
+    # Pendências de evento abertas
+    eventos = db.query(models.Pendencia).filter(
+        models.Pendencia.jogador_id == j.id,
+        models.Pendencia.tipo == "evento",
+        models.Pendencia.quitado == False,
+    ).order_by(models.Pendencia.criado_em).all()
+    for e in eventos:
+        pendencias_abertas.append({
+            "id": e.id, "tipo": "evento",
+            "descricao": e.descricao, "valor": e.valor,
+            "referencia": e.referencia,
+        })
+
+    total_devido = sum(p["valor"] for p in pendencias_abertas)
+    if not pendencias_abertas and j.tipo != "mensalista":
+        total_devido = VALOR_AVULSO
 
     return {
-        "id": j.id,
-        "nome": j.nome,
-        "tipo": j.tipo,
-        "mes": mes,
-        "ano": ano,
-        "valor_devido": valor_devido,
+        "id": j.id, "nome": j.nome, "tipo": j.tipo,
+        "mes": mes, "ano": ano,
+        "valor_devido": total_devido or (VALOR_MENSALIDADE if j.tipo == "mensalista" else VALOR_AVULSO),
+        "pendencias": pendencias_abertas,
     }
 
 @app.post("/api/comprovante/enviar")
@@ -1231,6 +1316,7 @@ async def enviar_comprovante_jogador(
     nome_comprovante: str = Form(default=""),
     valor: str = Form(default=""),
     data_iso: str = Form(default=""),
+    pendencias_ids: str = Form(default=""),   # IDs separados por vírgula
     db: Session = Depends(get_db)
 ):
     """Recebe comprovante enviado pelo jogador e cria pendência para aprovação."""
@@ -1284,7 +1370,7 @@ async def enviar_comprovante_jogador(
         data_pagamento=data_pagamento or date.today(),
         referencia=referencia,
         tipo=j.tipo if j.tipo == "avulso" else "mensalidade",
-        observacao=f"PENDENTE|comprovante_id:{arquivo.id}|nome:{nome_comprovante}",
+        observacao=f"PENDENTE|comprovante_id:{arquivo.id}|nome:{nome_comprovante}|pendencias_ids:{pendencias_ids}",
     )
     db.add(p)
     db.commit()
@@ -1302,6 +1388,12 @@ def listar_pendentes(db: Session = Depends(get_db)):
         # Extrai info do campo observacao
         partes = {k: v for k, v in (x.split(':', 1) for x in p.observacao.split('|') if ':' in x)}
         comprovante_id = partes.get('comprovante_id', '')
+        ids_str = partes.get("pendencias_ids", "")
+        pend_ids = [int(x) for x in ids_str.split(",") if x.strip().isdigit()]
+        pend_info = []
+        if pend_ids:
+            pends = db.query(models.Pendencia).filter(models.Pendencia.id.in_(pend_ids)).all()
+            pend_info = [{"id": pe.id, "descricao": pe.descricao, "valor": pe.valor} for pe in pends]
         result.append({
             "id": p.id,
             "jogador_id": p.jogador_id,
@@ -1313,15 +1405,94 @@ def listar_pendentes(db: Session = Depends(get_db)):
             "nome_comprovante": partes.get('nome', ''),
             "comprovante_url": f"/api/comprovante/arquivo/{comprovante_id}" if comprovante_id else None,
             "criado_em": p.criado_em.isoformat() if p.criado_em else None,
+            "pendencias": pend_info,
         })
     return result
 
+@app.get("/api/pendencias")
+def listar_pendencias(db: Session = Depends(get_db)):
+    """Retorna todos os jogadores com pendências financeiras abertas."""
+    cfg = _get_config(db)
+    VALOR_MENSALIDADE = cfg["valor_mensalidade"]
+    hoje = date.today()
+    mes, ano = hoje.month, hoje.year
+    MESES_PT = ["","Janeiro","Fevereiro","Março","Abril","Maio","Junho",
+                "Julho","Agosto","Setembro","Outubro","Novembro","Dezembro"]
+
+    mensalistas = db.query(models.Jogador).filter(
+        models.Jogador.tipo == "mensalista", models.Jogador.ativo == True
+    ).order_by(models.Jogador.nome).all()
+
+    todos_ativos = db.query(models.Jogador).filter(
+        models.Jogador.ativo == True
+    ).order_by(models.Jogador.nome).all()
+
+    result = {}
+
+    # Mensalidade: verifica últimos 3 meses para cada mensalista
+    for j in mensalistas:
+        for delta in range(2, -1, -1):
+            m = mes - delta; y = ano
+            if m <= 0: m += 12; y -= 1
+            # Não cobrar meses antes da criação do jogador
+            if j.criado_em and date(y, m, 1) < j.criado_em.date().replace(day=1):
+                continue
+            pags = db.query(models.Pagamento).filter(
+                models.Pagamento.jogador_id == j.id,
+                models.Pagamento.tipo == "mensalidade",
+                extract("month", models.Pagamento.data_pagamento) == m,
+                extract("year",  models.Pagamento.data_pagamento) == y,
+            ).all()
+            pago  = sum(p.valor for p in pags if not (p.observacao or "").startswith("PENDENTE|"))
+            falta = round(VALOR_MENSALIDADE - pago, 2)
+            if falta > 0:
+                if j.id not in result:
+                    result[j.id] = {"jogador": {"id": j.id, "nome": j.nome, "tipo": j.tipo,
+                                                 "telefone": j.telefone, "email": j.email}, "itens": []}
+                result[j.id]["itens"].append({
+                    "id": None, "tipo": "mensalidade",
+                    "descricao": f"Mensalidade {MESES_PT[m]} {y}",
+                    "valor": falta, "referencia": f"{y}-{m:02d}",
+                })
+
+    # Pendências de evento abertas
+    eventos = db.query(models.Pendencia).filter(
+        models.Pendencia.tipo == "evento",
+        models.Pendencia.quitado == False,
+    ).order_by(models.Pendencia.criado_em).all()
+    for e in eventos:
+        j = e.jogador
+        if not j or not j.ativo:
+            continue
+        if j.id not in result:
+            result[j.id] = {"jogador": {"id": j.id, "nome": j.nome, "tipo": j.tipo,
+                                         "telefone": j.telefone, "email": j.email}, "itens": []}
+        result[j.id]["itens"].append({
+            "id": e.id, "tipo": "evento",
+            "descricao": e.descricao, "valor": e.valor, "referencia": e.referencia,
+        })
+
+    lista = sorted(result.values(), key=lambda x: x["jogador"]["nome"])
+    for entry in lista:
+        entry["total"] = round(sum(i["valor"] for i in entry["itens"]), 2)
+    return lista
+
 @app.post("/api/pendentes/{pagamento_id}/aprovar")
 def aprovar_pendente(pagamento_id: int, db: Session = Depends(get_db)):
-    """Aprova um pagamento pendente."""
+    """Aprova um pagamento pendente e quita as pendências vinculadas."""
     p = db.query(models.Pagamento).filter(models.Pagamento.id == pagamento_id).first()
     if not p:
         raise HTTPException(404, "Pagamento não encontrado")
+    # Extrai pendencias_ids do observacao
+    partes = {k: v for k, v in (x.split(':', 1) for x in (p.observacao or "").split('|') if ':' in x)}
+    ids_str = partes.get("pendencias_ids", "")
+    ids = [int(x) for x in ids_str.split(",") if x.strip().isdigit()]
+    if ids:
+        now = datetime.utcnow()
+        db.query(models.Pendencia).filter(
+            models.Pendencia.id.in_(ids),
+            models.Pendencia.jogador_id == p.jogador_id,
+        ).update({"quitado": True, "quitado_em": now}, synchronize_session=False)
     p.observacao = p.observacao.replace("PENDENTE|", "")
     db.commit()
     return {"ok": True}

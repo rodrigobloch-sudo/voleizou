@@ -180,7 +180,8 @@
     <a href="#" data-page="pagamentos"><i class="bi bi-cash-coin"></i> Pagamentos</a>
     <a href="#" data-page="saidas"><i class="bi bi-arrow-up-circle"></i> Saídas</a>
     <a href="#" data-page="caixa"><i class="bi bi-safe2"></i> Caixa Geral</a>
-    <a href="#" data-page="pendentes"><i class="bi bi-hourglass-split"></i> Pendentes <span id="badge-pendentes" class="badge bg-danger ms-1 d-none"></span></a>
+    <a href="#" data-page="pendencias"><i class="bi bi-exclamation-circle"></i> Pendências</a>
+    <a href="#" data-page="pendentes"><i class="bi bi-hourglass-split"></i> Aprovações <span id="badge-pendentes" class="badge bg-danger ms-1 d-none"></span></a>
     <!-- Configurações (submenu) -->
     <a href="#" class="sidebar-parent" id="nav-config-toggle" onclick="toggleConfigMenu(event)" data-slug="config">
       <i class="bi bi-gear"></i> Configurações
@@ -482,10 +483,10 @@
     </div>
   </div>
 
-  <!-- ── PENDENTES ── -->
+  <!-- ── PENDENTES (Aprovações) ── -->
   <div id="page-pendentes" class="page">
     <div class="d-flex justify-content-between align-items-center mb-4">
-      <h5 class="fw-bold mb-0">Comprovantes pendentes</h5>
+      <h5 class="fw-bold mb-0"><i class="bi bi-hourglass-split me-2 text-primary"></i>Aprovações de comprovantes</h5>
       <button class="btn btn-outline-secondary btn-sm" onclick="carregarPendentes()"><i class="bi bi-arrow-clockwise"></i></button>
     </div>
     <div id="lista-pendentes"></div>
@@ -532,6 +533,18 @@
         </table>
       </div>
     </div>
+  </div>
+
+  <!-- ── PENDÊNCIAS FINANCEIRAS ── -->
+  <div id="page-pendencias" class="page">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+      <div>
+        <h5 class="fw-bold mb-0"><i class="bi bi-exclamation-circle me-2 text-danger"></i>Pendências Financeiras</h5>
+        <p class="text-muted small mb-0">Jogadores com mensalidade ou eventos em aberto.</p>
+      </div>
+      <button class="btn btn-outline-secondary btn-sm" onclick="carregarPendencias()"><i class="bi bi-arrow-clockwise"></i></button>
+    </div>
+    <div id="lista-pendencias"></div>
   </div>
 
   <!-- ── CONFIG: VALORES ── -->
@@ -655,15 +668,26 @@
           <label class="form-label">Data *</label>
           <input type="date" class="form-control" id="jogo-data" />
         </div>
-        <div class="mb-3">
-          <label class="form-label">Categoria</label>
-          <select class="form-select" id="jogo-categoria" onchange="jogoCategoriaMudou()">
-            <option value="">— Selecione —</option>
-            <option>Jogo Semanal</option>
-            <option>Amistoso</option>
-            <option>Torneios Diversos</option>
-            <option>Liga Semestral/Anual</option>
-          </select>
+        <div class="row g-3 mb-3">
+          <div class="col-7">
+            <label class="form-label">Categoria</label>
+            <select class="form-select" id="jogo-categoria" onchange="jogoCategoriaMudou()">
+              <option value="">— Selecione —</option>
+              <option>Jogo Semanal</option>
+              <option>Amistoso</option>
+              <option>Torneios Diversos</option>
+              <option>Liga Semestral/Anual</option>
+            </select>
+          </div>
+          <div class="col-5">
+            <label class="form-label">Status</label>
+            <select class="form-select" id="jogo-status">
+              <option value="Planejado">Planejado</option>
+              <option value="Confirmado">Confirmado</option>
+              <option value="Cancelado">Cancelado</option>
+              <option value="Realizado">Realizado</option>
+            </select>
+          </div>
         </div>
         <div class="mb-3" id="jogo-valor-wrap" style="display:none">
           <label class="form-label fw-semibold">Valor total do evento <span class="text-danger">*</span></label>
@@ -1064,6 +1088,7 @@ function navegarPara(page) {
   if (page === 'config-usuarios')   carregarUsuarios();
   if (page === 'config-permissoes') carregarPermissoes();
   if (page === 'config-valores')    carregarConfigValores();
+  if (page === 'pendencias')        carregarPendencias();
 }
 
 document.querySelectorAll('#sidebar nav a[data-page]').forEach(link => {
@@ -1607,6 +1632,11 @@ function renderCardJogo(j) {
     : j.categoria === 'Torneios Diversos' ? 'bg-warning text-dark'
     : j.categoria === 'Amistoso' ? 'bg-success'
     : 'bg-primary';
+  const se = j.status_efetivo || j.status || 'Planejado';
+  const statusColor = se === 'Confirmado' ? 'bg-success' : se === 'Cancelado' ? 'bg-danger'
+    : se === 'Realizado' ? 'bg-secondary' : 'bg-light text-dark border';
+  const statusIcon  = se === 'Confirmado' ? 'bi-check-circle' : se === 'Cancelado' ? 'bi-x-circle'
+    : se === 'Realizado' ? 'bi-flag' : 'bi-calendar-plus';
   return `
   <div class="card mb-3">
     <div class="card-body">
@@ -1614,6 +1644,7 @@ function renderCardJogo(j) {
         <div>
           <h6 class="mb-1 fw-bold"><i class="bi bi-calendar-event me-2 text-primary"></i>${fmtDate(j.data)}</h6>
           ${j.categoria ? `<span class="badge ${catColor} me-2 mb-1">${j.categoria}</span>` : ''}
+          <span class="badge ${statusColor} me-2 mb-1"><i class="bi ${statusIcon} me-1"></i>${se}</span>
           ${j.valor && totalParticipantes > 0 ? `<span class="badge bg-light text-success border border-success me-2 mb-1"><i class="bi bi-cash me-1"></i>R$ ${(j.valor/totalParticipantes).toFixed(2).replace('.',',')}/pessoa <span class="opacity-75">· total R$ ${Number(j.valor).toFixed(2).replace('.',',')}</span></span>` : j.valor ? `<span class="badge bg-light text-success border border-success me-2 mb-1"><i class="bi bi-cash me-1"></i>Total R$ ${Number(j.valor).toFixed(2).replace('.',',')}</span>` : ''}
           ${j.observacao ? `<small class="text-muted">${j.observacao}</small>` : ''}
         </div>
@@ -1696,11 +1727,11 @@ function abrirModalJogo() {
   document.getElementById('jogo-id').value = '';
   document.getElementById('jogo-data').value = today();
   document.getElementById('jogo-categoria').value = '';
+  document.getElementById('jogo-status').value = 'Planejado';
   document.getElementById('jogo-obs').value = '';
   document.getElementById('jogo-valor').value = '';
   document.getElementById('jogo-valor-wrap').style.display = 'none';
   document.getElementById('modalJogoTitulo').textContent = 'Novo jogo';
-  // Estimativa: todos os mensalistas ativos
   _jogoNParticipantes = mensalistasAtivos.length;
   atualizarValorCabeca();
   new bootstrap.Modal('#modalJogo').show();
@@ -1712,9 +1743,9 @@ function editarJogo(id) {
   document.getElementById('jogo-id').value = j.id;
   document.getElementById('jogo-data').value = j.data;
   document.getElementById('jogo-categoria').value = j.categoria || '';
+  document.getElementById('jogo-status').value = j.status || 'Planejado';
   document.getElementById('jogo-obs').value = j.observacao || '';
   document.getElementById('jogo-valor').value = j.valor || '';
-  // Participantes reais: mensalistas presentes + avulsos
   const ausentes = j.mensalistas_ausentes || [];
   const mensPresentes = mensalistasAtivos.filter(m => !ausentes.includes(m.id)).length;
   _jogoNParticipantes = mensPresentes + (j.avulsos || []).length;
@@ -1727,13 +1758,15 @@ async function salvarJogo() {
   const id   = document.getElementById('jogo-id').value;
   const data = document.getElementById('jogo-data').value;
   const cat  = document.getElementById('jogo-categoria').value || null;
+  const status = document.getElementById('jogo-status').value || 'Planejado';
   if (!data) { toast('Data é obrigatória', 'warning'); return; }
   const precisaValor = cat && cat !== 'Jogo Semanal';
   const valorStr = document.getElementById('jogo-valor').value;
-  if (precisaValor && !valorStr) { toast('Informe o valor por participante', 'warning'); return; }
+  if (precisaValor && status === 'Confirmado' && !valorStr) {
+    toast('Informe o valor total para confirmar um evento', 'warning'); return;
+  }
   const payload = {
-    data,
-    categoria: cat,
+    data, categoria: cat, status,
     observacao: document.getElementById('jogo-obs').value || null,
     valor: valorStr ? parseFloat(valorStr) : null,
   };
@@ -2228,6 +2261,11 @@ async function carregarPendentes() {
             &nbsp;·&nbsp;
             <i class="bi bi-clock me-1"></i>Enviado ${p.criado_em ? new Date(p.criado_em).toLocaleString('pt-BR') : '—'}
           </div>
+          ${p.pendencias && p.pendencias.length > 0 ? `
+          <div class="mt-2 p-2 bg-light rounded">
+            <small class="text-muted fw-semibold d-block mb-1"><i class="bi bi-receipt me-1"></i>Pendências vinculadas:</small>
+            ${p.pendencias.map(pe => `<small class="d-block">• ${pe.descricao} — <strong>R$ ${Number(pe.valor).toFixed(2).replace('.',',')}</strong></small>`).join('')}
+          </div>` : ''}
           ${p.comprovante_url ? `
           <div class="mt-2">
             <a href="${p.comprovante_url}" target="_blank" class="btn btn-sm btn-outline-secondary">
@@ -2617,7 +2655,8 @@ const MENU_NOMES = {
   pagamentos:      'Pagamentos',
   saidas:          'Saídas',
   caixa:           'Caixa Geral',
-  pendentes:       'Pendentes',
+  pendencias:      'Pendências',
+  pendentes:       'Aprovações',
   config:          'Configurações',
   'config-valores':'Valores (Jogo Semanal)',
 };
@@ -2653,6 +2692,71 @@ async function togglePermissao(tipo, slug, valor, el) {
     el.checked = !valor; // reverte o toggle
     toast(e.message, 'danger');
   }
+}
+
+// ── Pendências Financeiras ────────────────────────────────────────────────────
+async function carregarPendencias() {
+  const div = document.getElementById('lista-pendencias');
+  div.innerHTML = '<div class="text-center py-4"><div class="spinner-border text-primary"></div></div>';
+  try {
+    const lista = await api('GET', '/api/pendencias');
+    if (lista.length === 0) {
+      div.innerHTML = '<div class="alert alert-success"><i class="bi bi-check-circle me-2"></i>Nenhuma pendência em aberto. Todos em dia!</div>';
+      return;
+    }
+    const fmt = v => 'R$ ' + Number(v).toFixed(2).replace('.', ',');
+    div.innerHTML = lista.map(entry => {
+      const j = entry.jogador;
+      const tipoBadge = j.tipo === 'mensalista'
+        ? '<span class="badge bg-primary me-1">Mensalista</span>'
+        : '<span class="badge bg-secondary me-1">Avulso</span>';
+      const itens = entry.itens.map(it => `
+        <div class="d-flex justify-content-between align-items-center py-1">
+          <span>
+            <span class="badge ${it.tipo === 'mensalidade' ? 'bg-warning text-dark' : 'bg-info text-dark'} me-1" style="font-size:.7rem">${it.tipo === 'mensalidade' ? 'Mensalidade' : 'Evento'}</span>
+            <small>${it.descricao}</small>
+          </span>
+          <strong class="text-danger">${fmt(it.valor)}</strong>
+        </div>`).join('');
+      const hasTel = j.telefone && j.telefone.replace(/\D/g, '').length >= 10;
+      return `
+      <div class="card mb-3">
+        <div class="card-body">
+          <div class="d-flex justify-content-between align-items-start mb-2">
+            <div>
+              <strong>${j.nome}</strong> ${tipoBadge}
+              ${j.telefone ? `<small class="text-muted d-block">${j.telefone}</small>` : ''}
+            </div>
+            <div class="text-end">
+              <div class="fw-bold text-danger fs-5">${fmt(entry.total)}</div>
+              <small class="text-muted">${entry.itens.length} pendência(s)</small>
+            </div>
+          </div>
+          <div class="border-top pt-2">${itens}</div>
+          <div class="mt-3 d-flex gap-2">
+            ${hasTel ? `<button class="btn btn-sm btn-success" onclick="cobrarPendenciasWpp(${JSON.stringify(entry).replace(/'/g,'&apos;')})">
+              <i class="bi bi-whatsapp me-1"></i>Cobrar via WhatsApp
+            </button>` : ''}
+            <a href="/pagar/${j.id}" target="_blank" class="btn btn-sm btn-outline-primary">
+              <i class="bi bi-link-45deg me-1"></i>Link de pagamento
+            </a>
+          </div>
+        </div>
+      </div>`;
+    }).join('');
+  } catch(e) { div.innerHTML = `<div class="alert alert-danger">Erro ao carregar pendências.</div>`; }
+}
+
+function cobrarPendenciasWpp(entry) {
+  const j = entry.jogador;
+  const fmt = v => 'R$ ' + Number(v).toFixed(2).replace('.', ',');
+  const ball = String.fromCodePoint(0x1F3D0);
+  const linhas = entry.itens.map(it => `- ${it.descricao}: ${fmt(it.valor)}`).join('\n');
+  const link = `${window.location.origin}/pagar/${j.id}`;
+  const msg = `Olá ${j.nome}! ${ball}\n\nSuas pendências no Voleizou:\n${linhas}\n\nTotal: ${fmt(entry.total)}\n\nPague pelo link:\n${link}`;
+  const tel = j.telefone.replace(/\D/g, '');
+  const numero = tel.startsWith('55') ? tel : '55' + tel;
+  window.open(`https://wa.me/${numero}?text=${encodeURIComponent(msg)}`, '_blank');
 }
 
 // ── Config Valores ────────────────────────────────────────────────────────────

@@ -20,8 +20,9 @@ class Jogador(Base):
     ativo           = Column(Boolean, default=True)
     criado_em       = Column(DateTime, server_default=func.now())
 
-    pagamentos   = relationship("Pagamento", back_populates="jogador", cascade="all, delete-orphan")
-    participacoes = relationship("ParticipacaoAvulso", back_populates="jogador", cascade="all, delete-orphan")
+    pagamentos            = relationship("Pagamento", back_populates="jogador", cascade="all, delete-orphan")
+    participacoes         = relationship("ParticipacaoAvulso", back_populates="jogador", cascade="all, delete-orphan")
+    pendencias_financeiras= relationship("Pendencia", back_populates="jogador", cascade="all, delete-orphan")
 
 
 class Jogo(Base):
@@ -31,11 +32,13 @@ class Jogo(Base):
     data                 = Column(Date, nullable=False)
     categoria            = Column(String, nullable=True)
     observacao           = Column(String, nullable=True)
-    valor                = Column(Float, nullable=True)   # valor por participante (não usado em Jogo Semanal)
+    valor                = Column(Float, nullable=True)   # valor total do evento (não usado em Jogo Semanal)
     mensalistas_ausentes = Column(String, nullable=True)  # IDs separados por vírgula
+    status               = Column(String, nullable=True, default="Planejado")  # Planejado|Confirmado|Cancelado|Realizado
     criado_em            = Column(DateTime, server_default=func.now())
 
     participacoes = relationship("ParticipacaoAvulso", back_populates="jogo", cascade="all, delete-orphan")
+    pendencias    = relationship("Pendencia", back_populates="jogo", cascade="all, delete-orphan")
 
 
 class ParticipacaoAvulso(Base):
@@ -111,6 +114,26 @@ class Permissao(Base):
     tipo_usuario = Column(String, nullable=False)   # admin | mensalista | avulso
     menu_slug    = Column(String, nullable=False)   # dashboard | jogadores | …
     permitido    = Column(Boolean, nullable=False, default=False)
+
+
+class Pendencia(Base):
+    """Pendências financeiras individuais por jogador (eventos confirmados + mensalidade)."""
+    __tablename__ = "pendencias"
+    __table_args__ = (UniqueConstraint("jogador_id", "jogo_id"),)  # evita duplicatas por jogo
+
+    id          = Column(Integer, primary_key=True, index=True)
+    jogador_id  = Column(Integer, ForeignKey("jogadores.id"), nullable=False)
+    jogo_id     = Column(Integer, ForeignKey("jogos.id"), nullable=True)   # None = mensalidade
+    tipo        = Column(String, nullable=False)   # "evento" | "mensalidade"
+    descricao   = Column(String, nullable=False)
+    valor       = Column(Float, nullable=False)
+    referencia  = Column(String, nullable=True)    # "2026-05" (mensalidade) ou data do jogo
+    quitado     = Column(Boolean, default=False, nullable=False)
+    quitado_em  = Column(DateTime, nullable=True)
+    criado_em   = Column(DateTime, server_default=func.now())
+
+    jogador = relationship("Jogador", back_populates="pendencias_financeiras")
+    jogo    = relationship("Jogo",    back_populates="pendencias")
 
 
 class Configuracao(Base):

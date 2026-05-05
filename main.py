@@ -27,7 +27,14 @@ ENCRYPTION_KEY  = os.getenv("ENCRYPTION_KEY",  "")
 MENUS_SLUGS = [
     "dashboard", "jogadores", "jogos", "pagamentos",
     "saidas", "caixa", "pendentes", "config",
+    "config-valores",
 ]
+
+# Chaves de configuração com seus defaults
+CONFIG_DEFAULTS = {
+    "valor_mensalidade": "120.0",
+    "valor_avulso":      "35.0",
+}
 TIPOS_USUARIO = ["admin", "mensalista", "avulso"]
 
 # ── Helpers de criptografia (CPF / RG) ───────────────────────────────────────
@@ -200,6 +207,30 @@ def _seed_permissoes():
         db.close()
 
 _seed_permissoes()
+
+def _seed_config():
+    """Garante que todas as chaves de CONFIG_DEFAULTS existam no banco."""
+    db = SessionLocal()
+    try:
+        for chave, valor in CONFIG_DEFAULTS.items():
+            if not db.query(models.Configuracao).filter_by(chave=chave).first():
+                db.add(models.Configuracao(chave=chave, valor=valor))
+        db.commit()
+    except Exception:
+        db.rollback()
+    finally:
+        db.close()
+
+_seed_config()
+
+def _get_config(db: Session) -> dict:
+    """Retorna dict com os valores de configuração convertidos para float."""
+    rows = db.query(models.Configuracao).all()
+    cfg = {r.chave: float(r.valor) for r in rows}
+    # garante defaults caso seed ainda não tenha rodado
+    for chave, valor in CONFIG_DEFAULTS.items():
+        cfg.setdefault(chave, float(valor))
+    return cfg
 
 def _migrar_criptografia():
     """Criptografa CPF/RG existentes que ainda estão em texto puro."""
@@ -400,6 +431,29 @@ def atualizar_permissao(tipo_usuario: str, menu_slug: str, data: PermissaoUpdate
     p.permitido = data.permitido
     db.commit()
     return {"ok": True, "permitido": p.permitido}
+
+
+# ── Configurações de valores ───────────────────────────────────────────────────
+
+class ValoresUpdate(BaseModel):
+    valor_mensalidade: float
+    valor_avulso: float
+
+@app.get("/api/config/valores")
+def get_valores(db: Session = Depends(get_db)):
+    return _get_config(db)
+
+@app.put("/api/config/valores")
+def put_valores(data: ValoresUpdate, db: Session = Depends(get_db)):
+    for chave, valor in [("valor_mensalidade", data.valor_mensalidade),
+                         ("valor_avulso", data.valor_avulso)]:
+        row = db.query(models.Configuracao).filter_by(chave=chave).first()
+        if row:
+            row.valor = str(valor)
+        else:
+            db.add(models.Configuracao(chave=chave, valor=str(valor)))
+    db.commit()
+    return _get_config(db)
 
 
 # ── Schemas ───────────────────────────────────────────────────────────────────
@@ -742,6 +796,9 @@ def dashboard(mes: Optional[int] = None, ano: Optional[int] = None, db: Session 
     hoje = date.today()
     mes = mes or hoje.month
     ano = ano or hoje.year
+    cfg = _get_config(db)
+    VALOR_MENSALIDADE = cfg["valor_mensalidade"]
+    VALOR_AVULSO      = cfg["valor_avulso"]
 
     MESES_PT = ["", "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
                 "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"]
@@ -767,7 +824,7 @@ def dashboard(mes: Optional[int] = None, ano: Optional[int] = None, db: Session 
         valor_pago = sum(p.valor for p in pagamentos_m)
         ultimo_pag = max(pagamentos_m, key=lambda p: p.data_pagamento) if pagamentos_m else None
 
-        if valor_pago >= 120:
+        if valor_pago >= VALOR_MENSALIDADE:
             status = "quitado"
         elif valor_pago > 0:
             status = "parcial"
@@ -779,8 +836,8 @@ def dashboard(mes: Optional[int] = None, ano: Optional[int] = None, db: Session 
             "nome": m.nome,
             "status": status,
             "valor_pago": valor_pago,
-            "valor_devido": 120.0,
-            "valor_falta": max(0, 120.0 - valor_pago),
+            "valor_devido": VALOR_MENSALIDADE,
+            "valor_falta": max(0, VALOR_MENSALIDADE - valor_pago),
             "data_pagamento": ultimo_pag.data_pagamento.isoformat() if ultimo_pag else None,
         })
 
@@ -808,7 +865,7 @@ def dashboard(mes: Optional[int] = None, ano: Optional[int] = None, db: Session 
             if any(p.jogador_id == av.id for p in jogo.participacoes)
         )
         valor_pago = sum(p.valor for p in pagamentos_avulso_mes if p.jogador_id == av.id)
-        valor_devido = jogos_count * 35
+        valor_devido = jogos_count * VALOR_AVULSO
         if jogos_count > 0 or valor_pago > 0:
             avulsos_resumo.append({
                 "id": av.id,
@@ -922,7 +979,8 @@ def info_pagamento_jogador(jogador_id: int, db: Session = Depends(get_db)):
 
     hoje = date.today()
     mes, ano = hoje.month, hoje.year
-    valor_devido = 120.0 if j.tipo == "mensalista" else 35.0
+    cfg = _get_config(db)
+    valor_devido = cfg["valor_mensalidade"] if j.tipo == "mensalista" else cfg["valor_avulso"]
 
     return {
         "id": j.id,

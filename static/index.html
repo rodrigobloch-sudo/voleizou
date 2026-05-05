@@ -189,6 +189,7 @@
     <div id="config-submenu" class="sidebar-submenu" style="display:none">
       <a href="#" data-page="config-usuarios"><i class="bi bi-people-fill"></i> Usuários</a>
       <a href="#" data-page="config-permissoes"><i class="bi bi-shield-lock"></i> Permissões</a>
+      <a href="#" data-page="config-valores"><i class="bi bi-currency-dollar"></i> Valores</a>
     </div>
   </nav>
   <div style="padding: 12px 16px; border-top: 1px solid #334155;">
@@ -525,6 +526,39 @@
           </thead>
           <tbody id="perm-tbody"></tbody>
         </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── CONFIG: VALORES ── -->
+  <div id="page-config-valores" class="page">
+    <div class="mb-4">
+      <h5 class="fw-bold mb-1"><i class="bi bi-currency-dollar me-2 text-primary"></i>Valores do Jogo Semanal</h5>
+      <p class="text-muted small mb-0">Defina os valores cobrados por padrão em jogos semanais. Alterações valem imediatamente nos cálculos de dashboard e cobranças.</p>
+    </div>
+    <div class="card" style="max-width:480px">
+      <div class="card-body">
+        <div class="mb-4">
+          <label class="form-label fw-semibold">Mensalidade (por mês)</label>
+          <div class="input-group">
+            <span class="input-group-text">R$</span>
+            <input type="number" class="form-control" id="cfg-valor-mensalidade"
+                   step="0.01" min="0" placeholder="120,00" />
+          </div>
+          <div class="form-text">Valor cobrado de mensalistas por mês, independente do número de jogos.</div>
+        </div>
+        <div class="mb-4">
+          <label class="form-label fw-semibold">Avulso (por jogo)</label>
+          <div class="input-group">
+            <span class="input-group-text">R$</span>
+            <input type="number" class="form-control" id="cfg-valor-avulso"
+                   step="0.01" min="0" placeholder="35,00" />
+          </div>
+          <div class="form-text">Valor cobrado de jogadores avulsos por cada jogo semanal que participam.</div>
+        </div>
+        <button class="btn btn-primary w-100" onclick="salvarConfigValores()">
+          <i class="bi bi-check-lg me-1"></i>Salvar valores
+        </button>
       </div>
     </div>
   </div>
@@ -1017,6 +1051,7 @@ function navegarPara(page) {
   if (page === 'pendentes')         carregarPendentes();
   if (page === 'config-usuarios')   carregarUsuarios();
   if (page === 'config-permissoes') carregarPermissoes();
+  if (page === 'config-valores')    carregarConfigValores();
 }
 
 document.querySelectorAll('#sidebar nav a[data-page]').forEach(link => {
@@ -1803,13 +1838,13 @@ function onPagJogadorChange() {
   const tipoPag = document.getElementById('pag-tipo');
   if (tipo === 'mensalista') {
     tipoPag.value = 'mensalidade';
-    document.getElementById('pag-valor').value = '120';
+    document.getElementById('pag-valor').value = configValores.valor_mensalidade;
     const mes = MESES[new Date().getMonth() + 1];
     const ano = new Date().getFullYear();
     document.getElementById('pag-referencia').value = `${mes} ${ano}`;
   } else {
     tipoPag.value = 'avulso';
-    document.getElementById('pag-valor').value = '35';
+    document.getElementById('pag-valor').value = configValores.valor_avulso;
     document.getElementById('pag-referencia').value = '';
   }
   onPagTipoChange();
@@ -2297,7 +2332,7 @@ async function cobrancaSelecionarJogo(jogoId) {
       telefone: j.telefone || '',
       status: statusMens[j.id] || 'em_aberto',
       valor_devido: isSemanal
-        ? (statusMens[j.id] === 'parcial' ? dash.mensalistas_lista.find(m=>m.id===j.id)?.valor_falta : 120)
+        ? (statusMens[j.id] === 'parcial' ? dash.mensalistas_lista.find(m=>m.id===j.id)?.valor_falta : configValores.valor_mensalidade)
         : valorEvento,
       ref: isSemanal ? `${MESES[mes]} ${ano}` : refData,
     });
@@ -2311,7 +2346,7 @@ async function cobrancaSelecionarJogo(jogoId) {
       id: a.id, nome: a.nome, tipo: 'avulso',
       telefone: jog.telefone || '',
       status: 'em_aberto',
-      valor_devido: isSemanal ? 35 : valorEvento,
+      valor_devido: isSemanal ? configValores.valor_avulso : valorEvento,
       ref: refData,
     });
   });
@@ -2512,14 +2547,15 @@ async function excluirUsuario(id, nome) {
 
 // ── Permissões ────────────────────────────────────────────────────────────────
 const MENU_NOMES = {
-  dashboard:  'Dashboard',
-  jogadores:  'Jogadores',
-  jogos:      'Jogos',
-  pagamentos: 'Pagamentos',
-  saidas:     'Saídas',
-  caixa:      'Caixa Geral',
-  pendentes:  'Pendentes',
-  config:     'Configurações',
+  dashboard:       'Dashboard',
+  jogadores:       'Jogadores',
+  jogos:           'Jogos',
+  pagamentos:      'Pagamentos',
+  saidas:          'Saídas',
+  caixa:           'Caixa Geral',
+  pendentes:       'Pendentes',
+  config:          'Configurações',
+  'config-valores':'Valores (Jogo Semanal)',
 };
 
 async function carregarPermissoes() {
@@ -2553,6 +2589,31 @@ async function togglePermissao(tipo, slug, valor, el) {
     el.checked = !valor; // reverte o toggle
     toast(e.message, 'danger');
   }
+}
+
+// ── Config Valores ────────────────────────────────────────────────────────────
+let configValores = { valor_mensalidade: 120, valor_avulso: 35 };
+
+async function carregarConfigValores() {
+  try {
+    const cfg = await api('GET', '/api/config/valores');
+    configValores = cfg;
+    document.getElementById('cfg-valor-mensalidade').value = cfg.valor_mensalidade;
+    document.getElementById('cfg-valor-avulso').value      = cfg.valor_avulso;
+  } catch(e) { toast('Erro ao carregar valores', 'danger'); }
+}
+
+async function salvarConfigValores() {
+  const mens = parseFloat(document.getElementById('cfg-valor-mensalidade').value);
+  const avul = parseFloat(document.getElementById('cfg-valor-avulso').value);
+  if (!mens || !avul || mens <= 0 || avul <= 0) {
+    toast('Informe valores válidos e positivos', 'warning'); return;
+  }
+  try {
+    const cfg = await api('PUT', '/api/config/valores', { valor_mensalidade: mens, valor_avulso: avul });
+    configValores = cfg;
+    toast('Valores salvos com sucesso!');
+  } catch(e) { toast(e.message, 'danger'); }
 }
 
 // ── Autenticação ─────────────────────────────────────────────────────────────
@@ -2599,8 +2660,12 @@ async function fazerLogout() {
   document.getElementById('btn-login').innerHTML = '<i class="bi bi-box-arrow-in-right me-2"></i>Entrar';
 }
 
-function iniciarApp(perms) {
+async function iniciarApp(perms) {
   aplicarPermissoes(perms || {});
+  // Carrega config de valores antes de qualquer cálculo
+  try {
+    configValores = await api('GET', '/api/config/valores');
+  } catch(e) { /* usa defaults */ }
   carregarDashboard();
   carregarIP();
   carregarPendentes();

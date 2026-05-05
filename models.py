@@ -109,3 +109,12 @@ class Permissao(Base):
     tipo_usuario = Column(String, nullable=False)   # admin | mensalista | avulso
     menu_slug    = Column(String, nullable=False)   # dashboard | jogadores | …
     permitido    = Column(Boolean, nullable=False, default=False)
+
+
+class Configuracao(Base):
+    """Configurações gerais do sistema (chave → valor)."""
+    __tablename__ = "configuracoes"
+
+    chave     = Column(String, primary_key=True)
+    valor     = Column(String, nullable=False)
+    criado_em = Column(DateTime, server_default=func.now())

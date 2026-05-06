@@ -1553,10 +1553,58 @@ def listar_pendentes(db: Session = Depends(get_db)):
         })
     return result
 
+def _pendencias_jogador(jogador_id: int, db: Session, cfg: dict) -> list:
+    """Retorna as pendências de um jogador específico (para uso próprio)."""
+    hoje = date.today()
+    mes, ano = hoje.month, hoje.year
+    MESES_PT = ["","Janeiro","Fevereiro","Março","Abril","Maio","Junho",
+                "Julho","Agosto","Setembro","Outubro","Novembro","Dezembro"]
+    VALOR_MENSALIDADE = cfg["valor_mensalidade"]
+    j = db.query(models.Jogador).filter(models.Jogador.id == jogador_id, models.Jogador.ativo == True).first()
+    if not j:
+        return []
+    itens = []
+    if j.tipo == "mensalista":
+        for delta in range(2, -1, -1):
+            m = mes - delta; y = ano
+            if m <= 0: m += 12; y -= 1
+            if j.criado_em and date(y, m, 1) < j.criado_em.date().replace(day=1):
+                continue
+            pags = db.query(models.Pagamento).filter(
+                models.Pagamento.jogador_id == j.id,
+                models.Pagamento.tipo == "mensalidade",
+                extract("month", models.Pagamento.data_pagamento) == m,
+                extract("year",  models.Pagamento.data_pagamento) == y,
+            ).all()
+            pago  = sum(p.valor for p in pags if not (p.observacao or "").startswith("PENDENTE|"))
+            falta = round(VALOR_MENSALIDADE - pago, 2)
+            if falta > 0:
+                itens.append({"id": None, "tipo": "mensalidade",
+                              "descricao": f"Mensalidade {MESES_PT[m]} {y}",
+                              "valor": falta, "referencia": f"{y}-{m:02d}"})
+    eventos = db.query(models.Pendencia).filter(
+        models.Pendencia.jogador_id == jogador_id,
+        models.Pendencia.tipo == "evento",
+        models.Pendencia.quitado == False,
+    ).all()
+    for e in eventos:
+        itens.append({"id": e.id, "tipo": "evento",
+                      "descricao": e.descricao, "valor": e.valor, "referencia": e.referencia})
+    if not itens:
+        return []
+    total = round(sum(i["valor"] for i in itens), 2)
+    return [{"jogador": {"id": j.id, "nome": j.nome, "tipo": j.tipo,
+                         "telefone": j.telefone, "email": j.email},
+             "itens": itens, "total": total}]
+
+
 @app.get("/api/pendencias")
-def listar_pendencias(db: Session = Depends(get_db)):
-    """Retorna todos os jogadores com pendências financeiras abertas."""
+def listar_pendencias(request: Request, db: Session = Depends(get_db)):
+    """Admin: retorna todos. Jogador: retorna só as próprias pendências."""
     cfg = _get_config(db)
+    u = _usuario_da_sessao(request, db)
+    if u and u.tipo != "admin" and u.jogador_id:
+        return _pendencias_jogador(u.jogador_id, db, cfg)
     VALOR_MENSALIDADE = cfg["valor_mensalidade"]
     hoje = date.today()
     mes, ano = hoje.month, hoje.year

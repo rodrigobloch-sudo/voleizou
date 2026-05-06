@@ -2599,14 +2599,11 @@ async function aprovarCadastro(id, nome) {
   if (!confirm(`Aprovar cadastro de ${nome}?\nUm e-mail será enviado com o link para criar a senha.`)) return;
   try {
     const d = await api('POST', `/api/cadastros-pendentes/${id}/aprovar`);
-    // Mostra modal com username + link (sempre, para o admin poder copiar se necessário)
-    const modalBody = document.getElementById('modalConviteTexto');
-    const modalLabel = document.getElementById('modalConviteLabel');
-    modalLabel.textContent = `Cadastro de ${nome} aprovado`;
-    modalBody.value = d.email_enviado
-      ? `Usuário: ${d.usuario}\n\nO e-mail com o link de criação de senha foi enviado para ${nome}.`
-      : `Usuário: ${d.usuario}\n\nLink de definição de senha (e-mail não enviado — envie manualmente):\n${d.setup_url}`;
-    new bootstrap.Modal(document.getElementById('modalConvite')).show();
+    if (d.email_enviado) {
+      toast(`Cadastro de ${nome} aprovado! Usuário: ${d.usuario} · E-mail enviado.`);
+    } else {
+      prompt(`Cadastro de ${nome} aprovado!\nUsuário: ${d.usuario}\n\nE-mail não enviado — copie o link abaixo e envie manualmente:`, d.setup_url);
+    }
     carregarPendentes();
     carregarJogadores();
   } catch(e) { toast(e.message, 'danger'); }

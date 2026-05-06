@@ -510,9 +510,11 @@ def me(request: Request, db: Session = Depends(get_db)):
     u = db.query(models.Usuario).filter(models.Usuario.usuario == login).first()
     tipo = (u.tipo or "admin") if u else "admin"
     perms = db.query(models.Permissao).filter(models.Permissao.tipo_usuario == tipo).all()
+    jogador_id = u.jogador_id if u else None
     return {
         "ok": True,
         "tipo": tipo,
+        "jogador_id": jogador_id,
         "permissoes": {p.menu_slug: p.permitido for p in perms},
     }
 

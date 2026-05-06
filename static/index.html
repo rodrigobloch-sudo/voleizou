@@ -230,8 +230,8 @@
       <button class="btn btn-outline-primary btn-sm" onclick="mudaMes(0)">Mês atual</button>
     </div>
 
-    <!-- Stats -->
-    <div class="row g-3 mb-4">
+    <!-- Stats (admin only) -->
+    <div id="dash-stats-row" class="row g-3 mb-4">
       <div class="col-md-4">
         <div class="stat-card" style="background:linear-gradient(135deg,#2563eb,#1d4ed8)">
           <div class="label">Entradas</div>
@@ -252,7 +252,8 @@
       </div>
     </div>
 
-    <div class="row g-3 mb-3">
+    <!-- Mensalistas / Avulsos (admin only) -->
+    <div id="dash-financeiro-row" class="row g-3 mb-3">
       <!-- Mensalistas -->
       <div class="col-md-6">
         <div class="card p-3">
@@ -653,6 +654,7 @@
             <div class="form-check"><input class="form-check-input" type="checkbox" id="pos-libero" value="Líbero"><label class="form-check-label" for="pos-libero">Líbero</label></div>
             <div class="form-check"><input class="form-check-input" type="checkbox" id="pos-levantador" value="Levantador"><label class="form-check-label" for="pos-levantador">Levantador</label></div>
             <div class="form-check"><input class="form-check-input" type="checkbox" id="pos-4x2" value="4x2"><label class="form-check-label" for="pos-4x2">4x2</label></div>
+            <div class="form-check"><input class="form-check-input" type="checkbox" id="pos-nao-sei" value="Não sei informar"><label class="form-check-label" for="pos-nao-sei">Não sei informar</label></div>
           </div>
         </div>
         <div class="mb-3">
@@ -1120,6 +1122,7 @@ function toast(msg, tipo = 'success') {
 // ── Navegação ────────────────────────────────────────────────────────────────
 let permissoesGlobais = {};
 let tipoUsuarioLogado = 'admin';
+let jogadorIdLogado = null;
 
 function navegarPara(page) {
   // Checa permissão (mapeia sub-páginas de config para o slug 'config')
@@ -1183,64 +1186,73 @@ function aplicarPermissoes(perms) {
 
 // ── Dashboard ────────────────────────────────────────────────────────────────
 async function carregarDashboard() {
+  const isAdmin = tipoUsuarioLogado === 'admin';
+
+  // Mostra/oculta seções exclusivas de admin
+  document.getElementById('dash-stats-row').classList.toggle('d-none', !isAdmin);
+  document.getElementById('dash-financeiro-row').classList.toggle('d-none', !isAdmin);
+
   try {
     const d = await api('GET', `/api/dashboard?mes=${dashMes}&ano=${dashAno}`);
     document.getElementById('dash-titulo').textContent = d.mes_nome;
-    document.getElementById('dash-entradas').textContent = fmt(d.total_entradas);
-    document.getElementById('dash-saidas').textContent = fmt(d.total_saidas);
-    document.getElementById('dash-saldo').textContent = fmt(d.saldo);
 
-    // Mensalistas
-    const mDiv = document.getElementById('dash-mensalistas');
-    let html = '';
-    if (!d.mensalistas_lista || d.mensalistas_lista.length === 0) {
-      html = '<p class="text-muted small">Nenhum mensalista ativo.</p>';
-    } else {
-      d.mensalistas_lista.forEach(m => {
-        if (m.status === 'quitado') {
-          html += `<div class="d-flex justify-content-between align-items-center py-2 border-bottom">
-            <span><span class="dot dot-green me-2"></span>${m.nome}</span>
-            <span class="text-success fw-bold">${fmt(m.valor_pago)} <small class="text-muted">${fmtDate(m.data_pagamento)}</small></span>
-          </div>`;
-        } else if (m.status === 'parcial') {
-          html += `<div class="d-flex justify-content-between align-items-center py-2 border-bottom">
-            <span><span class="dot dot-yellow me-2"></span>${m.nome}</span>
-            <div class="text-end">
-              <span class="badge bg-warning text-dark">Parcial</span>
-              <small class="text-muted d-block">pago ${fmt(m.valor_pago)} · falta <strong class="text-danger">${fmt(m.valor_falta)}</strong></small>
+    if (isAdmin) {
+      document.getElementById('dash-entradas').textContent = fmt(d.total_entradas);
+      document.getElementById('dash-saidas').textContent = fmt(d.total_saidas);
+      document.getElementById('dash-saldo').textContent = fmt(d.saldo);
+
+      // Mensalistas
+      const mDiv = document.getElementById('dash-mensalistas');
+      let html = '';
+      if (!d.mensalistas_lista || d.mensalistas_lista.length === 0) {
+        html = '<p class="text-muted small">Nenhum mensalista ativo.</p>';
+      } else {
+        d.mensalistas_lista.forEach(m => {
+          if (m.status === 'quitado') {
+            html += `<div class="d-flex justify-content-between align-items-center py-2 border-bottom">
+              <span><span class="dot dot-green me-2"></span>${m.nome}</span>
+              <span class="text-success fw-bold">${fmt(m.valor_pago)} <small class="text-muted">${fmtDate(m.data_pagamento)}</small></span>
+            </div>`;
+          } else if (m.status === 'parcial') {
+            html += `<div class="d-flex justify-content-between align-items-center py-2 border-bottom">
+              <span><span class="dot dot-yellow me-2"></span>${m.nome}</span>
+              <div class="text-end">
+                <span class="badge bg-warning text-dark">Parcial</span>
+                <small class="text-muted d-block">pago ${fmt(m.valor_pago)} · falta <strong class="text-danger">${fmt(m.valor_falta)}</strong></small>
+              </div>
+            </div>`;
+          } else {
+            html += `<div class="d-flex justify-content-between align-items-center py-2 border-bottom">
+              <span><span class="dot dot-red me-2"></span>${m.nome}</span>
+              <span class="badge bg-danger">Em aberto</span>
+            </div>`;
+          }
+        });
+      }
+      const jogosHtml = d.jogos_mes.length > 0
+        ? `<div class="mt-2 pt-2 text-muted small">${d.jogos_mes.length} jogo(s) no mês</div>` : '';
+      mDiv.innerHTML = html + jogosHtml;
+
+      // Avulsos
+      const aDiv = document.getElementById('dash-avulsos');
+      if (d.avulsos_resumo.length === 0) {
+        aDiv.innerHTML = '<p class="text-muted small">Nenhum avulso com movimentação este mês.</p>';
+      } else {
+        aDiv.innerHTML = d.avulsos_resumo.map(a => `
+          <div class="d-flex justify-content-between align-items-center py-2 border-bottom">
+            <div>
+              <span class="dot ${a.pendente > 0 ? 'dot-yellow' : 'dot-green'} me-2"></span>
+              <strong>${a.nome}</strong>
+              <small class="text-muted ms-2">${a.jogos} jogo(s)</small>
             </div>
-          </div>`;
-        } else {
-          html += `<div class="d-flex justify-content-between align-items-center py-2 border-bottom">
-            <span><span class="dot dot-red me-2"></span>${m.nome}</span>
-            <span class="badge bg-danger">Em aberto</span>
-          </div>`;
-        }
-      });
-    }
-    const jogosHtml = d.jogos_mes.length > 0
-      ? `<div class="mt-2 pt-2 text-muted small">${d.jogos_mes.length} jogo(s) no mês</div>` : '';
-    mDiv.innerHTML = html + jogosHtml;
-
-    // Avulsos
-    const aDiv = document.getElementById('dash-avulsos');
-    if (d.avulsos_resumo.length === 0) {
-      aDiv.innerHTML = '<p class="text-muted small">Nenhum avulso com movimentação este mês.</p>';
-    } else {
-      aDiv.innerHTML = d.avulsos_resumo.map(a => `
-        <div class="d-flex justify-content-between align-items-center py-2 border-bottom">
-          <div>
-            <span class="dot ${a.pendente > 0 ? 'dot-yellow' : 'dot-green'} me-2"></span>
-            <strong>${a.nome}</strong>
-            <small class="text-muted ms-2">${a.jogos} jogo(s)</small>
-          </div>
-          <div class="text-end">
-            ${a.pendente > 0
-              ? `<span class="text-danger">${fmt(a.pendente)} pendente</span>`
-              : `<span class="text-success">Quitado</span>`}
-            <br><small class="text-muted">Pago: ${fmt(a.valor_pago)}</small>
-          </div>
-        </div>`).join('');
+            <div class="text-end">
+              ${a.pendente > 0
+                ? `<span class="text-danger">${fmt(a.pendente)} pendente</span>`
+                : `<span class="text-success">Quitado</span>`}
+              <br><small class="text-muted">Pago: ${fmt(a.valor_pago)}</small>
+            </div>
+          </div>`).join('');
+      }
     }
 
     // Aniversariantes
@@ -1274,33 +1286,42 @@ async function carregarDashboard() {
     if (!d.presencas_mes || d.presencas_mes.length === 0) {
       presDiv.innerHTML = '<p class="text-muted small mt-2">Nenhum jogador com presença registrada.</p>';
     } else {
-      presDiv.innerHTML = `<div class="table-responsive mt-2"><table class="table table-sm mb-0">
-        <thead><tr>
-          <th style="width:40%">Jogador</th>
-          <th style="width:15%">Tipo</th>
-          <th style="width:15%" class="text-center">Presenças</th>
-          <th>Frequência</th>
-        </tr></thead>
-        <tbody>
-          ${d.presencas_mes.map(p => {
-            const pct = totalJ > 0 ? Math.round((p.presencas / totalJ) * 100) : 0;
-            const barColor = pct >= 75 ? 'bg-success' : pct >= 40 ? 'bg-warning' : 'bg-danger';
-            return `<tr>
-              <td class="fw-bold">${p.nome}</td>
-              <td><span class="badge ${p.tipo === 'mensalista' ? 'badge-mensalista' : 'badge-avulso'}">${p.tipo}</span></td>
-              <td class="text-center">${p.presencas}${totalJ > 0 ? ' / ' + totalJ : ''}</td>
-              <td style="min-width:120px">
-                <div class="d-flex align-items-center gap-2">
-                  <div class="progress flex-grow-1" style="height:8px">
-                    <div class="progress-bar ${barColor}" style="width:${pct}%"></div>
+      // Jogador não-admin: mostra apenas sua própria linha
+      const lista = isAdmin
+        ? d.presencas_mes
+        : d.presencas_mes.filter(p => p.id === jogadorIdLogado);
+
+      if (lista.length === 0) {
+        presDiv.innerHTML = '<p class="text-muted small mt-2">Nenhuma presença registrada para você este mês.</p>';
+      } else {
+        presDiv.innerHTML = `<div class="table-responsive mt-2"><table class="table table-sm mb-0">
+          <thead><tr>
+            <th style="width:40%">Jogador</th>
+            <th style="width:15%">Tipo</th>
+            <th style="width:15%" class="text-center">Presenças</th>
+            <th>Frequência</th>
+          </tr></thead>
+          <tbody>
+            ${lista.map(p => {
+              const pct = totalJ > 0 ? Math.round((p.presencas / totalJ) * 100) : 0;
+              const barColor = pct >= 75 ? 'bg-success' : pct >= 40 ? 'bg-warning' : 'bg-danger';
+              return `<tr>
+                <td class="fw-bold">${p.nome}</td>
+                <td><span class="badge ${p.tipo === 'mensalista' ? 'badge-mensalista' : 'badge-avulso'}">${p.tipo}</span></td>
+                <td class="text-center">${p.presencas}${totalJ > 0 ? ' / ' + totalJ : ''}</td>
+                <td style="min-width:120px">
+                  <div class="d-flex align-items-center gap-2">
+                    <div class="progress flex-grow-1" style="height:8px">
+                      <div class="progress-bar ${barColor}" style="width:${pct}%"></div>
+                    </div>
+                    <small class="text-muted" style="min-width:32px">${pct}%</small>
                   </div>
-                  <small class="text-muted" style="min-width:32px">${pct}%</small>
-                </div>
-              </td>
-            </tr>`;
-          }).join('')}
-        </tbody>
-      </table></div>`;
+                </td>
+              </tr>`;
+            }).join('')}
+          </tbody>
+        </table></div>`;
+      }
     }
 
   } catch(e) { toast(e.message, 'danger'); }
@@ -3128,7 +3149,7 @@ async function fazerLogin() {
     }
     const me = await fetch('/api/me', {credentials: 'include'}).then(r => r.json()).catch(() => ({}));
     document.getElementById('login-overlay').classList.add('d-none');
-    iniciarApp(me.permissoes, me.tipo);
+    iniciarApp(me.permissoes, me.tipo, me.jogador_id);
   } catch(e) {
     erro.textContent = 'Erro de conexão. Tente novamente.';
     erro.classList.remove('d-none');
@@ -3146,8 +3167,9 @@ async function fazerLogout() {
   document.getElementById('btn-login').innerHTML = '<i class="bi bi-box-arrow-in-right me-2"></i>Entrar';
 }
 
-async function iniciarApp(perms, tipo) {
+async function iniciarApp(perms, tipo, jogadorId) {
   tipoUsuarioLogado = tipo || 'admin';
+  jogadorIdLogado = jogadorId || null;
   aplicarPermissoes(perms || {});
   // Carrega config de valores antes de qualquer cálculo
   try {
@@ -3166,7 +3188,7 @@ async function iniciarApp(perms, tipo) {
     if (res.ok) {
       const dados = await res.json();
       document.getElementById('login-overlay').classList.add('d-none');
-      iniciarApp(dados.permissoes, dados.tipo);
+      iniciarApp(dados.permissoes, dados.tipo, dados.jogador_id);
     }
   } catch(e) { /* mantém overlay visível */ }
 })();

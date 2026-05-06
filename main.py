@@ -801,6 +801,27 @@ def get_convite_link(request: Request):
     public_url = os.getenv("PUBLIC_URL", str(request.base_url).rstrip("/"))
     return {"link": f"{public_url}/cadastro"}
 
+
+@app.get("/api/admin/test-email")
+def test_email(para: str = ""):
+    """Testa envio de e-mail e retorna resultado detalhado."""
+    host     = os.getenv("SMTP_HOST", "")
+    port     = int(os.getenv("SMTP_PORT", "465"))
+    user     = os.getenv("SMTP_USER", "")
+    password = os.getenv("SMTP_PASS", "")
+    destino  = para or user
+    config = {"SMTP_HOST": host or "(não definido)", "SMTP_PORT": port,
+               "SMTP_USER": user or "(não definido)",
+               "SMTP_PASS": "***" if password else "(não definido)",
+               "destino": destino}
+    if not host:
+        return {"ok": False, "erro": "SMTP_HOST não configurado", "config": config}
+    try:
+        _enviar_email(destino, "Teste Voleizou", "Este é um e-mail de teste do Voleizou.")
+        return {"ok": True, "mensagem": f"E-mail enviado para {destino}", "config": config}
+    except Exception as exc:
+        return {"ok": False, "erro": str(exc), "config": config}
+
 @app.post("/api/cadastro")
 def cadastro_publico(data: CadastroPublico, db: Session = Depends(get_db)):
     """Cria uma solicitação de cadastro pendente — admin precisa aprovar."""

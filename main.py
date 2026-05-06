@@ -298,6 +298,27 @@ def _enviar_email(to: str, subject: str, body: str):
     """Envia e-mail via Brevo API (HTTP) ou SMTP como fallback."""
     import urllib.request as _urlreq, json as _json
 
+    resend_key = os.getenv("RESEND_API_KEY", "")
+    if resend_key:
+        payload = _json.dumps({
+            "from":    "Voleizou <onboarding@resend.dev>",
+            "to":      [to],
+            "subject": subject,
+            "text":    body,
+        }).encode()
+        req = _urlreq.Request(
+            "https://api.resend.com/emails",
+            data=payload,
+            headers={"Authorization": f"Bearer {resend_key}", "Content-Type": "application/json"},
+        )
+        try:
+            with _urlreq.urlopen(req, timeout=15) as resp:
+                print(f"[EMAIL] Enviado via Resend para {to}: {resp.status}")
+        except Exception as exc:
+            print(f"[EMAIL] Falha Resend para {to}: {exc}")
+            raise
+        return
+
     brevo_key = os.getenv("BREVO_API_KEY", "")
     if brevo_key:
         from_email = os.getenv("SMTP_FROM", os.getenv("SMTP_USER", "voleizoupoa@gmail.com"))
@@ -835,14 +856,15 @@ def test_email(para: str = ""):
     user     = os.getenv("SMTP_USER", "")
     password = os.getenv("SMTP_PASS", "")
     destino  = para or user
-    brevo = os.getenv("BREVO_API_KEY", "")
-    config = {"metodo": "Brevo API" if brevo else "SMTP",
-               "BREVO_API_KEY": "***" if brevo else "(não definido)",
+    resend = os.getenv("RESEND_API_KEY", "")
+    brevo  = os.getenv("BREVO_API_KEY", "")
+    config = {"metodo": "Resend" if resend else ("Brevo" if brevo else "SMTP"),
+               "RESEND_API_KEY": "***" if resend else "(não definido)",
+               "BREVO_API_KEY":  "***" if brevo  else "(não definido)",
                "SMTP_HOST": host or "(não definido)", "SMTP_PORT": port,
                "SMTP_USER": user or "(não definido)",
-               "SMTP_PASS": "***" if password else "(não definido)",
                "destino": destino}
-    if not brevo and not host:
+    if not resend and not brevo and not host:
         return {"ok": False, "erro": "Nenhum método de e-mail configurado", "config": config}
     try:
         _enviar_email(destino, "Teste Voleizou", "Este é um e-mail de teste do Voleizou.")

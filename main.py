@@ -1163,6 +1163,10 @@ def atualizar_presencas(jogo_id: int, data: PresencasUpdate, request: Request, d
     if not jogo:
         raise HTTPException(404, "Jogo não encontrado")
     jogo.mensalistas_ausentes = ','.join(str(i) for i in data.ausentes_ids) if data.ausentes_ids else None
+    db.flush()
+    # Recalcula pendências se o jogo já estiver confirmado (divisão do valor muda com presenças)
+    if jogo.status == "Confirmado":
+        _gerar_pendencias_jogo(db, jogo)
     db.commit()
     return {"ok": True}
 
@@ -1195,6 +1199,9 @@ def adicionar_avulso(jogo_id: int, data: ParticipacaoCreate, request: Request, d
         raise HTTPException(400, "Jogador já registrado neste jogo")
     p = models.ParticipacaoAvulso(jogo_id=jogo_id, jogador_id=data.jogador_id)
     db.add(p)
+    db.flush()
+    if jogo.status == "Confirmado":
+        _gerar_pendencias_jogo(db, jogo)
     db.commit()
     return {"ok": True}
 
@@ -1208,6 +1215,9 @@ def remover_avulso(jogo_id: int, jogador_id: int, request: Request, db: Session 
     if not p:
         raise HTTPException(404, "Participação não encontrada")
     db.delete(p)
+    db.flush()
+    if jogo.status == "Confirmado":
+        _gerar_pendencias_jogo(db, jogo)
     db.commit()
     return {"ok": True}
 

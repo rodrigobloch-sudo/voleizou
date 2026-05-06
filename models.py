@@ -35,6 +35,7 @@ class Jogo(Base):
     valor                = Column(Float, nullable=True)   # valor total do evento (não usado em Jogo Semanal)
     mensalistas_ausentes = Column(String, nullable=True)  # IDs separados por vírgula
     status               = Column(String, nullable=True, default="Planejado")  # Planejado|Confirmado|Cancelado|Realizado
+    endereco             = Column(String, nullable=True)
     criado_em            = Column(DateTime, server_default=func.now())
 
     participacoes = relationship("ParticipacaoAvulso", back_populates="jogo", cascade="all, delete-orphan")

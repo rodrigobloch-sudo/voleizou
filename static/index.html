@@ -746,6 +746,12 @@
           <div class="form-text">O valor por jogador é recalculado conforme os participantes mudam.</div>
         </div>
         <div class="mb-3">
+          <label class="form-label">Endereço / Local</label>
+          <input type="text" class="form-control" id="jogo-endereco"
+                 placeholder="Ex: Rua das Palmeiras, 100 — Porto Alegre" />
+          <div class="form-text">Se preenchido, será exibido com link para o Google Maps.</div>
+        </div>
+        <div class="mb-3">
           <label class="form-label">Observação</label>
           <input type="text" class="form-control" id="jogo-obs" placeholder="Opcional" />
         </div>
@@ -1901,6 +1907,7 @@ function renderCardJogo(j) {
           <span class="badge ${statusColor} me-2 mb-1"><i class="bi ${statusIcon} me-1"></i>${se}</span>
           ${j.valor && totalParticipantes > 0 ? `<span class="badge bg-light text-success border border-success me-2 mb-1"><i class="bi bi-cash me-1"></i>R$ ${(j.valor/totalParticipantes).toFixed(2).replace('.',',')}/pessoa <span class="opacity-75">· total R$ ${Number(j.valor).toFixed(2).replace('.',',')}</span></span>` : j.valor ? `<span class="badge bg-light text-success border border-success me-2 mb-1"><i class="bi bi-cash me-1"></i>Total R$ ${Number(j.valor).toFixed(2).replace('.',',')}</span>` : ''}
           ${j.observacao ? `<small class="text-muted">${j.observacao}</small>` : ''}
+          ${j.endereco ? `<div class="mt-1"><a href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(j.endereco)}" target="_blank" class="small text-decoration-none"><i class="bi bi-geo-alt-fill text-danger me-1"></i>${j.endereco}</a></div>` : ''}
         </div>
         <div class="d-flex align-items-center gap-2 flex-wrap">
           <span class="badge bg-secondary">${totalParticipantes} jogadores</span>
@@ -1984,6 +1991,7 @@ function abrirModalJogo() {
   document.getElementById('jogo-categoria').value = '';
   document.getElementById('jogo-status').value = 'Planejado';
   document.getElementById('jogo-obs').value = '';
+  document.getElementById('jogo-endereco').value = '';
   document.getElementById('jogo-valor').value = '';
   document.getElementById('jogo-valor-wrap').style.display = 'none';
   document.getElementById('modalJogoTitulo').textContent = 'Novo jogo';
@@ -2000,6 +2008,7 @@ function editarJogo(id) {
   document.getElementById('jogo-categoria').value = j.categoria || '';
   document.getElementById('jogo-status').value = j.status || 'Planejado';
   document.getElementById('jogo-obs').value = j.observacao || '';
+  document.getElementById('jogo-endereco').value = j.endereco || '';
   document.getElementById('jogo-valor').value = j.valor || '';
   const ausentes = j.mensalistas_ausentes || [];
   const mensPresentes = mensalistasAtivos.filter(m => !ausentes.includes(m.id)).length;
@@ -2023,6 +2032,7 @@ async function salvarJogo() {
   const payload = {
     data, categoria: cat, status,
     observacao: document.getElementById('jogo-obs').value || null,
+    endereco: document.getElementById('jogo-endereco').value.trim() || null,
     valor: valorStr ? parseFloat(valorStr) : null,
   };
   try {

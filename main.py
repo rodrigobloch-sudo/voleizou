@@ -123,6 +123,7 @@ def _migrar():
             ("jogos",     "mensalistas_ausentes",  "VARCHAR"),
             ("jogos",     "valor",                 "REAL"),
             ("jogos",     "status",                "VARCHAR"),
+            ("jogos",     "endereco",              "VARCHAR"),
             ("usuarios",  "tipo",                  "VARCHAR"),
             ("usuarios",  "jogador_id",            "INTEGER"),
         ]
@@ -704,11 +705,13 @@ class JogoCreate(BaseModel):
     observacao: Optional[str] = None
     valor: Optional[float] = None
     status: Optional[str] = "Planejado"
+    endereco: Optional[str] = None
 
 class JogoUpdate(BaseModel):
     data: Optional[date] = None
     categoria: Optional[str] = None
     observacao: Optional[str] = None
+    endereco: Optional[str] = None
     valor: Optional[float] = None
     status: Optional[str] = None
 
@@ -1111,6 +1114,7 @@ def _jogo_dict(jogo) -> dict:
         "status_efetivo": _status_efetivo(jogo.data, jogo.status),
         "avulsos": avulsos, "total_avulsos": len(avulsos),
         "mensalistas_ausentes": ausentes,
+        "endereco": jogo.endereco,
     }
 
 @app.get("/api/jogos")

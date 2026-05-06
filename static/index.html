@@ -177,6 +177,7 @@
     <a href="#" class="active" data-page="dashboard"><i class="bi bi-speedometer2"></i> Dashboard</a>
     <a href="#" data-page="jogadores"><i class="bi bi-people"></i> Jogadores</a>
     <a href="#" data-page="jogos"><i class="bi bi-calendar-week"></i> Jogos</a>
+    <a href="#" data-page="calendario"><i class="bi bi-calendar3"></i> Calendário</a>
     <a href="#" data-page="pagamentos"><i class="bi bi-cash-coin"></i> Pagamentos</a>
     <a href="#" data-page="saidas"><i class="bi bi-arrow-up-circle"></i> Saídas</a>
     <a href="#" data-page="caixa"><i class="bi bi-safe2"></i> Caixa Geral</a>
@@ -335,6 +336,22 @@
       </button>
     </div>
     <div id="lista-jogos"></div>
+  </div>
+
+  <!-- ── CALENDÁRIO ── -->
+  <div id="page-calendario" class="page">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+      <div class="month-nav">
+        <button class="btn btn-outline-secondary btn-sm" onclick="mudaMesCalendario(-1)"><i class="bi bi-chevron-left"></i></button>
+        <h5 id="cal-titulo" style="min-width:160px;text-align:center">Carregando...</h5>
+        <button class="btn btn-outline-secondary btn-sm" onclick="mudaMesCalendario(1)"><i class="bi bi-chevron-right"></i></button>
+      </div>
+      <button class="btn btn-outline-primary btn-sm" onclick="mudaMesCalendario(0)">Mês atual</button>
+    </div>
+    <div class="card p-3 mb-3">
+      <div id="cal-grid"></div>
+    </div>
+    <div id="cal-eventos"></div>
   </div>
 
   <!-- ── PAGAMENTOS ── -->
@@ -1112,6 +1129,7 @@ function navegarPara(page) {
   if (page === 'config-permissoes') carregarPermissoes();
   if (page === 'config-valores')    carregarConfigValores();
   if (page === 'pendencias')        carregarPendencias();
+  if (page === 'calendario')        carregarCalendario();
 }
 
 document.querySelectorAll('#sidebar nav a[data-page]').forEach(link => {
@@ -1367,6 +1385,151 @@ function mudaMes(delta) {
     if (dashMes < 1)  { dashMes = 12; dashAno--; }
   }
   carregarDashboard();
+}
+
+// ── Calendário (página dedicada) ─────────────────────────────────────────────
+let calMes = new Date().getMonth() + 1;
+let calAno = new Date().getFullYear();
+let calDiaSelecionado = null;
+
+async function carregarCalendario() {
+  try {
+    const d = await api('GET', `/api/dashboard?mes=${calMes}&ano=${calAno}`);
+    document.getElementById('cal-titulo').textContent = d.mes_nome;
+    renderCalendarioCompleto(d.mes, d.ano, d.jogos_mes);
+  } catch(e) { toast(e.message, 'danger'); }
+}
+
+function mudaMesCalendario(delta) {
+  calDiaSelecionado = null;
+  if (delta === 0) {
+    calMes = new Date().getMonth() + 1;
+    calAno = new Date().getFullYear();
+  } else {
+    calMes += delta;
+    if (calMes > 12) { calMes = 1; calAno++; }
+    if (calMes < 1)  { calMes = 12; calAno--; }
+  }
+  carregarCalendario();
+}
+
+function renderCalendarioCompleto(mes, ano, jogos) {
+  const diasSemana = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
+  const jogosPorDia = {};
+  (jogos || []).forEach(j => {
+    const dia = parseInt(j.data.split('-')[2]);
+    if (!jogosPorDia[dia]) jogosPorDia[dia] = [];
+    jogosPorDia[dia].push(j);
+  });
+
+  const primeiroDia = new Date(ano, mes - 1, 1).getDay();
+  const ultimoDia   = new Date(ano, mes, 0).getDate();
+  const hoje        = new Date();
+  const ehMesAtual  = hoje.getFullYear() === ano && hoje.getMonth() + 1 === mes;
+  const diaHoje     = ehMesAtual ? hoje.getDate() : -1;
+
+  // Grid
+  let grid = `<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:4px">`;
+  diasSemana.forEach(d => {
+    grid += `<div class="text-center fw-bold text-muted py-2" style="font-size:.72rem">${d}</div>`;
+  });
+  for (let i = 0; i < primeiroDia; i++) grid += `<div></div>`;
+  for (let dia = 1; dia <= ultimoDia; dia++) {
+    const eventos  = jogosPorDia[dia] || [];
+    const isHoje   = dia === diaHoje;
+    const isSel    = dia === calDiaSelecionado;
+    const temEvento = eventos.length > 0;
+    const cor      = temEvento ? catEventColor(eventos[0].categoria) : null;
+    const label    = eventos.length === 1
+      ? (eventos[0].categoria || 'Jogo Semanal')
+      : eventos.length > 1 ? `${eventos.length} eventos` : '';
+
+    grid += `<div onclick="selecionarDiaCalendario(${dia})" style="
+        min-height:64px;padding:6px 4px;border-radius:8px;cursor:${temEvento ? 'pointer' : 'default'};
+        border:2px solid ${isSel ? (cor || '#2563eb') : temEvento ? cor + '60' : '#e2e8f0'};
+        background:${isSel ? (cor || '#2563eb') + '20' : isHoje ? '#dbeafe' : temEvento ? cor + '10' : '#f8fafc'};
+        transition:all .15s;
+      ">
+      <div style="font-size:.85rem;font-weight:${isHoje || temEvento ? '700' : '400'};color:${temEvento ? cor : isHoje ? '#1d4ed8' : '#64748b'}">
+        ${dia}${isHoje ? ' ·' : ''}
+      </div>
+      ${label ? `<div style="font-size:.62rem;line-height:1.2;color:${cor};margin-top:2px;font-weight:600;overflow:hidden">${label}</div>` : ''}
+    </div>`;
+  }
+  grid += `</div>`;
+
+  // Legenda
+  const cats = [...new Set((jogos || []).map(j => j.categoria || 'Jogo Semanal'))];
+  if (cats.length > 0) {
+    grid += `<div class="d-flex flex-wrap gap-3 mt-3 pt-2 border-top">`;
+    cats.forEach(cat => {
+      grid += `<span class="d-flex align-items-center gap-1 small text-muted">
+        <span style="width:10px;height:10px;border-radius:50%;background:${catEventColor(cat)};display:inline-block"></span>${cat}
+      </span>`;
+    });
+    grid += `</div>`;
+  }
+
+  document.getElementById('cal-grid').innerHTML = grid;
+  renderEventosCalendario(jogos, jogosPorDia);
+}
+
+function selecionarDiaCalendario(dia) {
+  calDiaSelecionado = calDiaSelecionado === dia ? null : dia;
+  // Re-renderiza só o destaque — mais simples: recarrega
+  carregarCalendario();
+}
+
+function renderEventosCalendario(jogos, jogosPorDia) {
+  const div = document.getElementById('cal-eventos');
+  if (!jogos || jogos.length === 0) {
+    div.innerHTML = `<div class="alert alert-light border text-muted small"><i class="bi bi-calendar-x me-1"></i>Nenhum evento neste mês.</div>`;
+    return;
+  }
+
+  // Se há dia selecionado, filtra; senão mostra todos
+  const lista = calDiaSelecionado
+    ? (jogosPorDia[calDiaSelecionado] || [])
+    : jogos;
+
+  if (lista.length === 0) {
+    div.innerHTML = `<div class="alert alert-light border text-muted small">Nenhum evento no dia ${calDiaSelecionado}.</div>`;
+    return;
+  }
+
+  div.innerHTML = lista.map(j => {
+    const cor = catEventColor(j.categoria);
+    const [, , diaStr] = j.data.split('-');
+    const se = j.status_efetivo || j.status || 'Planejado';
+    const statusColor = se === 'Confirmado' ? 'bg-success' : se === 'Cancelado' ? 'bg-danger'
+      : se === 'Realizado' ? 'bg-secondary' : 'bg-light text-dark border';
+    const nPartic = (j.avulsos || []).length + (j.mensalistas_presentes_count ?? 0);
+    return `
+    <div class="card mb-2 p-3" style="border-left:4px solid ${cor}">
+      <div class="d-flex justify-content-between align-items-start">
+        <div>
+          <div class="fw-bold" style="color:${cor}"><i class="bi bi-circle-fill me-1" style="font-size:.5rem;vertical-align:middle"></i>Dia ${parseInt(diaStr)} — ${j.categoria || 'Jogo Semanal'}</div>
+          ${j.observacao ? `<div class="text-muted small mt-1">${j.observacao}</div>` : ''}
+          <div class="mt-1">
+            <span class="badge ${statusColor} me-1" style="font-size:.7rem">${se}</span>
+            ${j.valor ? `<span class="badge bg-light text-dark border" style="font-size:.7rem">R$ ${Number(j.valor).toFixed(2).replace('.',',')}</span>` : ''}
+          </div>
+        </div>
+        <button class="btn btn-sm btn-outline-secondary" onclick="irParaJogo(${j.id})">
+          <i class="bi bi-arrow-right"></i>
+        </button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function irParaJogo(id) {
+  irPara('jogos');
+  // Destaca o jogo na lista após carregar
+  setTimeout(() => {
+    const el = document.querySelector(`[data-jogo-id="${id}"]`);
+    if (el) el.scrollIntoView({behavior:'smooth', block:'center'});
+  }, 500);
 }
 
 // ── Jogadores ────────────────────────────────────────────────────────────────
@@ -1686,7 +1849,7 @@ function renderCardJogo(j) {
   const statusIcon  = se === 'Confirmado' ? 'bi-check-circle' : se === 'Cancelado' ? 'bi-x-circle'
     : se === 'Realizado' ? 'bi-flag' : 'bi-calendar-plus';
   return `
-  <div class="card mb-3">
+  <div class="card mb-3" data-jogo-id="${j.id}">
     <div class="card-body">
       <div class="d-flex justify-content-between align-items-start">
         <div>
@@ -2700,6 +2863,7 @@ const MENU_NOMES = {
   dashboard:       'Dashboard',
   jogadores:       'Jogadores',
   jogos:           'Jogos',
+  calendario:      'Calendário',
   pagamentos:      'Pagamentos',
   saidas:          'Saídas',
   caixa:           'Caixa Geral',

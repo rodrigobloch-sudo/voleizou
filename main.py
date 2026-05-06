@@ -26,7 +26,7 @@ ENCRYPTION_KEY  = os.getenv("ENCRYPTION_KEY",  "")
 
 # Menus do sistema — adicione aqui sempre que criar uma nova seção
 MENUS_SLUGS = [
-    "dashboard", "jogadores", "jogos", "pagamentos",
+    "dashboard", "jogadores", "jogos", "calendario", "pagamentos",
     "saidas", "caixa", "pendencias", "pendentes", "config",
     "config-valores",
 ]

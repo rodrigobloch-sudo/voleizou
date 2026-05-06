@@ -88,8 +88,10 @@ def _verificar_token(token: str, max_dias: int = 30) -> bool:
 _PUBLICOS_EXATOS   = {"/", "/api/login", "/api/logout", "/api/me",
                       "/api/comprovante/enviar", "/instalar-certificado", "/voleizou.crt",
                       "/cadastro", "/definir-senha",
+                      "/recuperar-senha", "/redefinir-senha",
                       "/api/cadastro", "/api/definir-senha-convite", "/api/verificar-convite",
-                      "/api/convite/link", "/cadastro-enviado"}
+                      "/api/convite/link", "/cadastro-enviado",
+                      "/api/recuperar-senha", "/api/verificar-reset", "/api/redefinir-senha"}
 _PUBLICOS_PREFIXO  = ("/static/", "/pagar/")
 _PUBLICOS_SUFIXO   = ("/info-pagamento",)
 
@@ -281,6 +283,28 @@ def _verificar_token_setup(token: str) -> int | None:
             return None
         ordinal = int(parts[2])
         if abs(date.today().toordinal() - ordinal) > 7:   # expira em 7 dias
+            return None
+        return int(parts[1])
+    except Exception:
+        return None
+
+def _gerar_token_reset(usuario_id: int) -> str:
+    payload = f"reset:{usuario_id}:{date.today().toordinal()}"
+    sig = hmac.new(SECRET_KEY.encode(), payload.encode(), hashlib.sha256).hexdigest()
+    return f"{payload}.{sig}"
+
+def _verificar_token_reset(token: str) -> int | None:
+    """Retorna usuario_id se token válido e dentro de 1 dia, None caso contrário."""
+    try:
+        payload, sig = token.rsplit(".", 1)
+        expected = hmac.new(SECRET_KEY.encode(), payload.encode(), hashlib.sha256).hexdigest()
+        if not hmac.compare_digest(sig, expected):
+            return None
+        parts = payload.split(":")
+        if len(parts) != 3 or parts[0] != "reset":
+            return None
+        ordinal = int(parts[2])
+        if abs(date.today().toordinal() - ordinal) > 1:
             return None
         return int(parts[1])
     except Exception:
@@ -972,6 +996,79 @@ def definir_senha_convite(data: DefinirSenhaConvite, db: Session = Depends(get_d
         raise HTTPException(404, "Usuário não encontrado")
     if len(data.senha) < 6:
         raise HTTPException(400, "Senha deve ter pelo menos 6 caracteres")
+    u.senha_hash = bcrypt.hashpw(data.senha.encode(), bcrypt.gensalt()).decode()
+    db.commit()
+    return {"ok": True}
+
+
+# ── Recuperação de senha ───────────────────────────────────────────────────────
+
+@app.get("/recuperar-senha")
+def pagina_recuperar_senha():
+    return FileResponse("static/recuperar-senha.html")
+
+@app.get("/redefinir-senha")
+def pagina_redefinir_senha():
+    return FileResponse("static/redefinir-senha.html")
+
+class RecuperarSenhaRequest(BaseModel):
+    email: str
+
+@app.post("/api/recuperar-senha")
+def recuperar_senha(data: RecuperarSenhaRequest, request: Request, db: Session = Depends(get_db)):
+    """Envia e-mail com link de redefinição de senha (válido 24h)."""
+    jogador = db.query(models.Jogador).filter(
+        models.Jogador.email == data.email.strip().lower(),
+        models.Jogador.ativo == True
+    ).first()
+    # Responde OK mesmo sem encontrar para não revelar quais e-mails existem
+    if not jogador:
+        return {"ok": True}
+    u = db.query(models.Usuario).filter_by(jogador_id=jogador.id).first()
+    if not u:
+        return {"ok": True}
+    token = _gerar_token_reset(u.id)
+    public_url = os.getenv("PUBLIC_URL", str(request.base_url).rstrip("/"))
+    reset_url  = f"{public_url}/redefinir-senha?token={token}"
+    try:
+        _enviar_email(
+            to=jogador.email,
+            subject="Voleizou — Redefinição de senha",
+            body=(f"Olá {jogador.nome}!\n\n"
+                  f"Recebemos uma solicitação para redefinir a senha da conta '{u.usuario}'.\n\n"
+                  f"Clique no link abaixo para criar uma nova senha:\n{reset_url}\n\n"
+                  f"O link é válido por 24 horas.\n"
+                  f"Se você não solicitou isso, ignore este e-mail.\n\n"
+                  f"Abraços,\nEquipe Voleizou"),
+        )
+    except Exception as exc:
+        print(f"[RESET] Falha ao enviar e-mail: {exc}")
+    return {"ok": True}
+
+@app.get("/api/verificar-reset")
+def verificar_reset(token: str, db: Session = Depends(get_db)):
+    uid = _verificar_token_reset(token)
+    if not uid:
+        raise HTTPException(400, "Link inválido ou expirado")
+    u = db.query(models.Usuario).filter(models.Usuario.id == uid).first()
+    if not u:
+        raise HTTPException(400, "Usuário não encontrado")
+    return {"ok": True, "nome": u.nome, "usuario": u.usuario}
+
+class RedefinirSenhaRequest(BaseModel):
+    token: str
+    senha: str
+
+@app.post("/api/redefinir-senha")
+def redefinir_senha(data: RedefinirSenhaRequest, db: Session = Depends(get_db)):
+    uid = _verificar_token_reset(data.token)
+    if not uid:
+        raise HTTPException(400, "Link inválido ou expirado")
+    u = db.query(models.Usuario).filter(models.Usuario.id == uid).first()
+    if not u:
+        raise HTTPException(400, "Usuário não encontrado")
+    if len(data.senha) < 6:
+        raise HTTPException(400, "A senha deve ter pelo menos 6 caracteres")
     u.senha_hash = bcrypt.hashpw(data.senha.encode(), bcrypt.gensalt()).decode()
     db.commit()
     return {"ok": True}

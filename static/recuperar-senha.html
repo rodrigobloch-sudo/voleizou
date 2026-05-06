@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Voleizou — Recuperar senha</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet" />
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css" rel="stylesheet" />
+  <style>
+    body { background: #f1f5f9; font-family: 'Segoe UI', sans-serif; }
+    .card { border: none; border-radius: 16px; box-shadow: 0 2px 12px rgba(0,0,0,.1); }
+  </style>
+</head>
+<body>
+  <div class="container py-5" style="max-width: 420px;">
+    <div class="text-center mb-4">
+      <img src="/static/logo.png" alt="Voleizou" style="width:72px;height:72px;object-fit:contain" />
+      <h5 class="fw-bold mt-2 mb-0">Voleizou</h5>
+      <p class="text-muted small">Recuperação de senha</p>
+    </div>
+
+    <!-- Formulário -->
+    <div id="estado-form">
+      <div class="card p-4">
+        <p class="text-muted small mb-3">
+          Informe o e-mail cadastrado na sua conta. Você receberá um link para criar uma nova senha.
+        </p>
+        <div id="alerta-erro" class="alert alert-danger d-none"></div>
+        <div class="mb-3">
+          <label class="form-label">E-mail</label>
+          <input type="email" class="form-control" id="email" placeholder="seu@email.com"
+                 onkeydown="if(event.key==='Enter') enviar()" />
+        </div>
+        <button class="btn btn-primary w-100" id="btn-enviar" onclick="enviar()">
+          <i class="bi bi-envelope me-1"></i>Enviar link de recuperação
+        </button>
+        <div class="text-center mt-3">
+          <a href="/" class="text-muted small">Voltar para o login</a>
+        </div>
+      </div>
+    </div>
+
+    <!-- Enviado -->
+    <div id="estado-enviado" class="d-none">
+      <div class="card p-4 text-center">
+        <i class="bi bi-envelope-check-fill text-success" style="font-size:3rem"></i>
+        <h5 class="mt-3 fw-bold">Verifique seu e-mail</h5>
+        <p class="text-muted">Se o e-mail informado estiver cadastrado, você receberá um link para redefinir sua senha em instantes.</p>
+        <a href="/" class="btn btn-outline-primary mt-1">
+          <i class="bi bi-arrow-left me-1"></i>Voltar para o login
+        </a>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    async function enviar() {
+      const erro  = document.getElementById('alerta-erro');
+      const email = document.getElementById('email').value.trim();
+      erro.classList.add('d-none');
+
+      if (!email || !email.includes('@')) {
+        erro.textContent = 'Informe um e-mail válido.';
+        erro.classList.remove('d-none'); return;
+      }
+
+      const btn = document.getElementById('btn-enviar');
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Enviando...';
+
+      try {
+        await fetch('/api/recuperar-senha', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({email}),
+        });
+        // Sempre mostra "verifique seu e-mail" (não revela se e-mail existe)
+        document.getElementById('estado-form').classList.add('d-none');
+        document.getElementById('estado-enviado').classList.remove('d-none');
+      } catch(e) {
+        erro.textContent = 'Erro de conexão. Tente novamente.';
+        erro.classList.remove('d-none');
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-envelope me-1"></i>Enviar link de recuperação';
+      }
+    }
+  </script>
+</body>
+</html>

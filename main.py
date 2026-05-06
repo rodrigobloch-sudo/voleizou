@@ -89,7 +89,7 @@ _PUBLICOS_EXATOS   = {"/", "/api/login", "/api/logout", "/api/me",
                       "/api/comprovante/enviar", "/instalar-certificado", "/voleizou.crt",
                       "/cadastro", "/definir-senha",
                       "/api/cadastro", "/api/definir-senha-convite", "/api/verificar-convite",
-                      "/api/convite/link"}
+                      "/api/convite/link", "/cadastro-enviado"}
 _PUBLICOS_PREFIXO  = ("/static/", "/pagar/")
 _PUBLICOS_SUFIXO   = ("/info-pagamento",)
 
@@ -796,57 +796,108 @@ def get_convite_link(request: Request):
     return {"link": f"{public_url}/cadastro"}
 
 @app.post("/api/cadastro")
-def cadastro_publico(data: CadastroPublico, request: Request, db: Session = Depends(get_db)):
+def cadastro_publico(data: CadastroPublico, db: Session = Depends(get_db)):
+    """Cria uma solicitação de cadastro pendente — admin precisa aprovar."""
     if data.tipo not in ("mensalista", "avulso"):
         raise HTTPException(400, "Modalidade inválida")
     if not data.email or "@" not in data.email:
         raise HTTPException(400, "E-mail inválido")
+    # Verifica duplicidade de e-mail/telefone em jogadores já ativos
     _checar_email_telefone(db, data.email, data.telefone)
+    # Verifica duplicidade em solicitações pendentes
+    existente = db.query(models.SolicitacaoCadastro).filter(
+        models.SolicitacaoCadastro.email == data.email,
+        models.SolicitacaoCadastro.status == "pendente"
+    ).first()
+    if existente:
+        raise HTTPException(400, "Já existe uma solicitação pendente com este e-mail")
 
-    # Criar jogador
+    sol = models.SolicitacaoCadastro(
+        nome=data.nome, email=data.email, telefone=data.telefone,
+        data_nascimento=data.data_nascimento, posicao=data.posicao,
+        rg=_encrypt(data.rg), cpf=_encrypt(data.cpf) if data.cpf else None,
+        tipo=data.tipo, numero_camisa=data.numero_camisa, status="pendente",
+    )
+    db.add(sol)
+    db.commit()
+    return {"ok": True, "mensagem": "Solicitação enviada! Aguarde aprovação do administrador."}
+
+
+@app.get("/api/cadastros-pendentes")
+def listar_cadastros_pendentes(db: Session = Depends(get_db)):
+    sols = db.query(models.SolicitacaoCadastro).filter(
+        models.SolicitacaoCadastro.status == "pendente"
+    ).order_by(models.SolicitacaoCadastro.criado_em).all()
+    return [{"id": s.id, "nome": s.nome, "email": s.email, "telefone": s.telefone,
+             "tipo": s.tipo, "posicao": s.posicao,
+             "data_nascimento": str(s.data_nascimento) if s.data_nascimento else None,
+             "criado_em": str(s.criado_em)} for s in sols]
+
+
+@app.post("/api/cadastros-pendentes/{sol_id}/aprovar")
+def aprovar_cadastro(sol_id: int, request: Request, db: Session = Depends(get_db)):
+    sol = db.query(models.SolicitacaoCadastro).filter(
+        models.SolicitacaoCadastro.id == sol_id).first()
+    if not sol:
+        raise HTTPException(404, "Solicitação não encontrada")
+    if sol.status != "pendente":
+        raise HTTPException(400, "Solicitação já processada")
+
+    # Verifica duplicidade antes de criar
+    _checar_email_telefone(db, sol.email, sol.telefone)
+
     j = models.Jogador(
-        nome=data.nome, tipo=data.tipo, email=data.email,
-        telefone=data.telefone, data_nascimento=data.data_nascimento,
-        posicao=data.posicao, rg=_encrypt(data.rg),
-        cpf=_encrypt(data.cpf) if data.cpf else None,
-        numero_camisa=data.numero_camisa, ativo=True,
+        nome=sol.nome, tipo=sol.tipo, email=sol.email,
+        telefone=sol.telefone, data_nascimento=sol.data_nascimento,
+        posicao=sol.posicao, rg=sol.rg, cpf=sol.cpf,
+        numero_camisa=sol.numero_camisa, ativo=True,
     )
     db.add(j)
-    db.flush()  # obtém j.id sem commit
+    db.flush()
 
-    # Gerar username e criar usuário com senha temporária aleatória
-    username = _gerar_usuario(data.email, db)
+    username = _gerar_usuario(sol.email, db)
     senha_temp = bcrypt.hashpw(os.urandom(32).hex().encode(), bcrypt.gensalt()).decode()
-    u = models.Usuario(nome=data.nome, usuario=username,
-                       senha_hash=senha_temp, tipo=data.tipo,
-                       jogador_id=j.id)
+    u = models.Usuario(nome=sol.nome, usuario=username,
+                       senha_hash=senha_temp, tipo=sol.tipo, jogador_id=j.id)
     db.add(u)
-    db.flush()  # obtém u.id
+    db.flush()
 
     token = _gerar_token_setup(u.id)
+    sol.status = "aprovado"
     db.commit()
 
-    # Enviar email com link de definição de senha
     public_url = os.getenv("PUBLIC_URL", str(request.base_url).rstrip("/"))
     setup_url  = f"{public_url}/definir-senha?token={token}"
+    email_ok = False
     try:
         _enviar_email(
-            to=data.email,
+            to=sol.email,
             subject="Bem-vindo ao Voleizou! Defina sua senha de acesso",
-            body=(f"Olá {data.nome}!\n\n"
-                  f"Seu cadastro no Voleizou foi realizado com sucesso.\n"
+            body=(f"Olá {sol.nome}!\n\n"
+                  f"Seu cadastro no Voleizou foi aprovado!\n"
                   f"Seu usuário de acesso é: {username}\n\n"
                   f"Clique no link abaixo para criar sua senha:\n{setup_url}\n\n"
                   f"O link é válido por 7 dias.\n\nAbraços,\nEquipe Voleizou"),
         )
         email_ok = True
     except Exception:
-        email_ok = False
+        pass
 
     resp = {"ok": True, "usuario": username, "email_enviado": email_ok}
     if not email_ok:
         resp["setup_url"] = setup_url
     return resp
+
+
+@app.post("/api/cadastros-pendentes/{sol_id}/rejeitar")
+def rejeitar_cadastro(sol_id: int, db: Session = Depends(get_db)):
+    sol = db.query(models.SolicitacaoCadastro).filter(
+        models.SolicitacaoCadastro.id == sol_id).first()
+    if not sol:
+        raise HTTPException(404, "Solicitação não encontrada")
+    sol.status = "rejeitado"
+    db.commit()
+    return {"ok": True}
 
 @app.get("/api/jogadores/{jogador_id}/link-setup")
 def get_link_setup(jogador_id: int, request: Request, db: Session = Depends(get_db)):

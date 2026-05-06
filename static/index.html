@@ -503,9 +503,10 @@
   <!-- ── PENDENTES (Aprovações) ── -->
   <div id="page-pendentes" class="page">
     <div class="d-flex justify-content-between align-items-center mb-4">
-      <h5 class="fw-bold mb-0"><i class="bi bi-hourglass-split me-2 text-primary"></i>Aprovações de comprovantes</h5>
+      <h5 class="fw-bold mb-0"><i class="bi bi-hourglass-split me-2 text-primary"></i>Aprovações</h5>
       <button class="btn btn-outline-secondary btn-sm" onclick="carregarPendentes()"><i class="bi bi-arrow-clockwise"></i></button>
     </div>
+    <div id="lista-cadastros-pendentes" class="mb-4"></div>
     <div id="lista-pendentes"></div>
   </div>
 
@@ -2437,24 +2438,67 @@ async function carregarCaixa() {
 // ── Pendentes ─────────────────────────────────────────────────────────────────
 async function carregarPendentes() {
   try {
-    const pendentes = await api('GET', '/api/pendentes');
+    const [pendentes, cadastros] = await Promise.all([
+      api('GET', '/api/pendentes'),
+      api('GET', '/api/cadastros-pendentes'),
+    ]);
 
-    // Atualiza badge
+    // Badge = soma dos dois
     const badge = document.getElementById('badge-pendentes');
-    if (pendentes.length > 0) {
-      badge.textContent = pendentes.length;
+    const total = pendentes.length + cadastros.length;
+    if (total > 0) {
+      badge.textContent = total;
       badge.classList.remove('d-none');
     } else {
       badge.classList.add('d-none');
     }
 
-    const div = document.getElementById('lista-pendentes');
-    if (pendentes.length === 0) {
-      div.innerHTML = '<div class="text-center text-muted py-5"><i class="bi bi-check-circle fs-1 text-success"></i><p class="mt-2">Nenhum comprovante pendente.</p></div>';
-      return;
+    // ── Solicitações de cadastro ──────────────────────────────────────────
+    const divCad = document.getElementById('lista-cadastros-pendentes');
+    if (cadastros.length > 0) {
+      divCad.innerHTML = `
+        <h6 class="fw-bold mb-3 text-primary"><i class="bi bi-person-plus me-2"></i>Solicitações de cadastro (${cadastros.length})</h6>
+        ${cadastros.map(c => `
+        <div class="card mb-3 border-primary border-opacity-25">
+          <div class="card-body">
+            <div class="d-flex justify-content-between align-items-start">
+              <div>
+                <h6 class="fw-bold mb-1">${c.nome}</h6>
+                <span class="badge ${c.tipo === 'mensalista' ? 'badge-mensalista' : 'badge-avulso'} me-2">${c.tipo}</span>
+                ${c.posicao ? `<span class="badge bg-light text-dark border me-1">${c.posicao.replace(/,/g, ' · ')}</span>` : ''}
+              </div>
+              <small class="text-muted">${c.criado_em ? new Date(c.criado_em).toLocaleString('pt-BR') : ''}</small>
+            </div>
+            <div class="mt-2 text-muted small">
+              <i class="bi bi-envelope me-1"></i>${c.email}
+              ${c.telefone ? `&nbsp;·&nbsp;<i class="bi bi-whatsapp me-1"></i>${c.telefone}` : ''}
+              ${c.data_nascimento ? `&nbsp;·&nbsp;<i class="bi bi-calendar me-1"></i>${fmtDate(c.data_nascimento)}` : ''}
+            </div>
+            <div class="mt-3 d-flex gap-2">
+              <button class="btn btn-success btn-sm" onclick="aprovarCadastro(${c.id}, '${c.nome.replace(/'/g,"\\'")}')">
+                <i class="bi bi-check-lg me-1"></i>Aprovar e enviar e-mail
+              </button>
+              <button class="btn btn-outline-danger btn-sm" onclick="rejeitarCadastro(${c.id}, '${c.nome.replace(/'/g,"\\'")}')">
+                <i class="bi bi-x-lg me-1"></i>Rejeitar
+              </button>
+            </div>
+          </div>
+        </div>`).join('')}`;
+    } else {
+      divCad.innerHTML = '';
     }
 
-    div.innerHTML = pendentes.map(p => `
+    // ── Comprovantes de pagamento ─────────────────────────────────────────
+    const div = document.getElementById('lista-pendentes');
+    if (pendentes.length === 0 && cadastros.length === 0) {
+      div.innerHTML = '<div class="text-center text-muted py-5"><i class="bi bi-check-circle fs-1 text-success"></i><p class="mt-2">Nenhuma aprovação pendente.</p></div>';
+      return;
+    }
+    if (pendentes.length === 0) { div.innerHTML = ''; return; }
+
+    div.innerHTML = `
+      <h6 class="fw-bold mb-3 text-success"><i class="bi bi-receipt me-2"></i>Comprovantes de pagamento (${pendentes.length})</h6>
+      ${pendentes.map(p => `
       <div class="card mb-3">
         <div class="card-body">
           <div class="d-flex justify-content-between align-items-start">
@@ -2492,7 +2536,7 @@ async function carregarPendentes() {
             </button>
           </div>
         </div>
-      </div>`).join('');
+      </div>`).join('')}`;
   } catch(e) { toast(e.message, 'danger'); }
 }
 
@@ -2509,6 +2553,29 @@ async function rejeitarPendente(id) {
   try {
     await api('DELETE', `/api/pendentes/${id}/rejeitar`);
     toast('Comprovante rejeitado', 'warning');
+    carregarPendentes();
+  } catch(e) { toast(e.message, 'danger'); }
+}
+
+async function aprovarCadastro(id, nome) {
+  if (!confirm(`Aprovar cadastro de ${nome}?\nUm e-mail será enviado com o link para criar a senha.`)) return;
+  try {
+    const d = await api('POST', `/api/cadastros-pendentes/${id}/aprovar`);
+    if (!d.email_enviado && d.setup_url) {
+      prompt(`E-mail não enviado. Envie este link para ${nome}:`, d.setup_url);
+    } else {
+      toast(`Cadastro de ${nome} aprovado! E-mail enviado.`);
+    }
+    carregarPendentes();
+    carregarJogadores();
+  } catch(e) { toast(e.message, 'danger'); }
+}
+
+async function rejeitarCadastro(id, nome) {
+  if (!confirm(`Rejeitar solicitação de ${nome}?`)) return;
+  try {
+    await api('POST', `/api/cadastros-pendentes/${id}/rejeitar`);
+    toast(`Solicitação de ${nome} rejeitada`, 'warning');
     carregarPendentes();
   } catch(e) { toast(e.message, 'danger'); }
 }

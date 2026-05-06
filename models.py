@@ -143,3 +143,21 @@ class Configuracao(Base):
     chave     = Column(String, primary_key=True)
     valor     = Column(String, nullable=False)
     criado_em = Column(DateTime, server_default=func.now())
+
+
+class SolicitacaoCadastro(Base):
+    """Solicitação de cadastro enviada pelo jogador — aguarda aprovação do admin."""
+    __tablename__ = "solicitacoes_cadastro"
+
+    id              = Column(Integer, primary_key=True, index=True)
+    nome            = Column(String, nullable=False)
+    email           = Column(String, nullable=False)
+    telefone        = Column(String, nullable=True)
+    data_nascimento = Column(Date, nullable=True)
+    posicao         = Column(String, nullable=True)
+    rg              = Column(String, nullable=True)   # encrypted
+    cpf             = Column(String, nullable=True)   # encrypted
+    tipo            = Column(String, nullable=False)  # mensalista | avulso
+    numero_camisa   = Column(Integer, nullable=True)
+    status          = Column(String, nullable=False, default="pendente")  # pendente | aprovado | rejeitado
+    criado_em       = Column(DateTime, server_default=func.now())

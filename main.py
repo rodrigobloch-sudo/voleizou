@@ -232,6 +232,25 @@ def _seed_config():
 
 _seed_config()
 
+def _reset_admin_pass():
+    """Se RESET_ADMIN_PASS estiver definido, redefine a senha do admin e remove a var."""
+    nova_senha = os.getenv("RESET_ADMIN_PASS", "")
+    if not nova_senha:
+        return
+    db = SessionLocal()
+    try:
+        u = db.query(models.Usuario).filter(models.Usuario.tipo == "admin").first()
+        if u:
+            u.senha_hash = bcrypt.hashpw(nova_senha.encode(), bcrypt.gensalt()).decode()
+            db.commit()
+            print(f"[RESET] Senha do admin '{u.usuario}' redefinida via RESET_ADMIN_PASS.")
+        else:
+            print("[RESET] Nenhum usuário admin encontrado.")
+    finally:
+        db.close()
+
+_reset_admin_pass()
+
 def _get_config(db: Session) -> dict:
     """Retorna dict com os valores de configuração convertidos para float."""
     rows = db.query(models.Configuracao).all()

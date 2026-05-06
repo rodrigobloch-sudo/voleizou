@@ -434,6 +434,12 @@ def _usuario_da_sessao(request: Request, db: Session) -> models.Usuario | None:
     except Exception:
         return None
 
+def _exigir_admin(request: Request, db: Session):
+    """Lança 403 se o usuário logado não for admin."""
+    u = _usuario_da_sessao(request, db)
+    if not u or u.tipo != "admin":
+        raise HTTPException(403, "Acesso restrito a administradores")
+
 def get_local_ip():
     try:
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -1036,7 +1042,8 @@ def listar_jogos(db: Session = Depends(get_db)):
     return [_jogo_dict(j) for j in jogos]
 
 @app.post("/api/jogos", status_code=201)
-def criar_jogo(data: JogoCreate, db: Session = Depends(get_db)):
+def criar_jogo(data: JogoCreate, request: Request, db: Session = Depends(get_db)):
+    _exigir_admin(request, db)
     jogo = models.Jogo(**data.model_dump())
     db.add(jogo)
     db.flush()
@@ -1054,7 +1061,8 @@ def obter_jogo(jogo_id: int, db: Session = Depends(get_db)):
     return _jogo_dict(jogo)
 
 @app.put("/api/jogos/{jogo_id}")
-def atualizar_jogo(jogo_id: int, data: JogoUpdate, db: Session = Depends(get_db)):
+def atualizar_jogo(jogo_id: int, data: JogoUpdate, request: Request, db: Session = Depends(get_db)):
+    _exigir_admin(request, db)
     jogo = db.query(models.Jogo).filter(models.Jogo.id == jogo_id).first()
     if not jogo:
         raise HTTPException(404, "Jogo não encontrado")
@@ -1068,7 +1076,8 @@ def atualizar_jogo(jogo_id: int, data: JogoUpdate, db: Session = Depends(get_db)
     return _jogo_dict(jogo)
 
 @app.put("/api/jogos/{jogo_id}/presencas")
-def atualizar_presencas(jogo_id: int, data: PresencasUpdate, db: Session = Depends(get_db)):
+def atualizar_presencas(jogo_id: int, data: PresencasUpdate, request: Request, db: Session = Depends(get_db)):
+    _exigir_admin(request, db)
     jogo = db.query(models.Jogo).filter(models.Jogo.id == jogo_id).first()
     if not jogo:
         raise HTTPException(404, "Jogo não encontrado")
@@ -1077,7 +1086,8 @@ def atualizar_presencas(jogo_id: int, data: PresencasUpdate, db: Session = Depen
     return {"ok": True}
 
 @app.delete("/api/jogos/{jogo_id}")
-def deletar_jogo(jogo_id: int, db: Session = Depends(get_db)):
+def deletar_jogo(jogo_id: int, request: Request, db: Session = Depends(get_db)):
+    _exigir_admin(request, db)
     jogo = db.query(models.Jogo).filter(models.Jogo.id == jogo_id).first()
     if not jogo:
         raise HTTPException(404, "Jogo não encontrado")
@@ -1086,7 +1096,8 @@ def deletar_jogo(jogo_id: int, db: Session = Depends(get_db)):
     return {"ok": True}
 
 @app.post("/api/jogos/{jogo_id}/participacoes", status_code=201)
-def adicionar_avulso(jogo_id: int, data: ParticipacaoCreate, db: Session = Depends(get_db)):
+def adicionar_avulso(jogo_id: int, data: ParticipacaoCreate, request: Request, db: Session = Depends(get_db)):
+    _exigir_admin(request, db)
     jogo = db.query(models.Jogo).filter(models.Jogo.id == jogo_id).first()
     if not jogo:
         raise HTTPException(404, "Jogo não encontrado")
@@ -1107,7 +1118,8 @@ def adicionar_avulso(jogo_id: int, data: ParticipacaoCreate, db: Session = Depen
     return {"ok": True}
 
 @app.delete("/api/jogos/{jogo_id}/participacoes/{jogador_id}")
-def remover_avulso(jogo_id: int, jogador_id: int, db: Session = Depends(get_db)):
+def remover_avulso(jogo_id: int, jogador_id: int, request: Request, db: Session = Depends(get_db)):
+    _exigir_admin(request, db)
     p = db.query(models.ParticipacaoAvulso).filter(
         models.ParticipacaoAvulso.jogo_id == jogo_id,
         models.ParticipacaoAvulso.jogador_id == jogador_id
@@ -1151,7 +1163,8 @@ def listar_pagamentos(
     ]
 
 @app.post("/api/pagamentos", status_code=201)
-def criar_pagamento(data: PagamentoCreate, db: Session = Depends(get_db)):
+def criar_pagamento(data: PagamentoCreate, request: Request, db: Session = Depends(get_db)):
+    _exigir_admin(request, db)
     if data.tipo not in ("mensalidade", "avulso"):
         raise HTTPException(400, "tipo deve ser 'mensalidade' ou 'avulso'")
     jogador = db.query(models.Jogador).filter(models.Jogador.id == data.jogador_id).first()
@@ -1164,7 +1177,8 @@ def criar_pagamento(data: PagamentoCreate, db: Session = Depends(get_db)):
     return {"id": p.id, "jogador_nome": jogador.nome, "valor": p.valor, "data_pagamento": p.data_pagamento.isoformat()}
 
 @app.delete("/api/pagamentos/{pagamento_id}")
-def deletar_pagamento(pagamento_id: int, db: Session = Depends(get_db)):
+def deletar_pagamento(pagamento_id: int, request: Request, db: Session = Depends(get_db)):
+    _exigir_admin(request, db)
     p = db.query(models.Pagamento).filter(models.Pagamento.id == pagamento_id).first()
     if not p:
         raise HTTPException(404, "Pagamento não encontrado")
@@ -1192,7 +1206,8 @@ def listar_saidas(mes: Optional[int] = None, ano: Optional[int] = None, db: Sess
     ]
 
 @app.post("/api/saidas", status_code=201)
-def criar_saida(data: SaidaCreate, db: Session = Depends(get_db)):
+def criar_saida(data: SaidaCreate, request: Request, db: Session = Depends(get_db)):
+    _exigir_admin(request, db)
     s = models.Saida(**data.model_dump())
     db.add(s)
     db.commit()
@@ -1200,7 +1215,8 @@ def criar_saida(data: SaidaCreate, db: Session = Depends(get_db)):
     return {"id": s.id, "descricao": s.descricao, "valor": s.valor, "data": s.data.isoformat()}
 
 @app.delete("/api/saidas/{saida_id}")
-def deletar_saida(saida_id: int, db: Session = Depends(get_db)):
+def deletar_saida(saida_id: int, request: Request, db: Session = Depends(get_db)):
+    _exigir_admin(request, db)
     s = db.query(models.Saida).filter(models.Saida.id == saida_id).first()
     if not s:
         raise HTTPException(404, "Saída não encontrada")

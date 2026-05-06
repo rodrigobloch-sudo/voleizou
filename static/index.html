@@ -957,6 +957,29 @@
   </div>
 </div>
 
+<!-- Modal Link de Convite -->
+<div class="modal fade" id="modalConvite" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="bi bi-link-45deg me-2"></i>Link de convite</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <p class="text-muted small mb-2">Envie este link para o novo jogador se cadastrar:</p>
+        <div class="input-group">
+          <input type="text" id="convite-link-input" class="form-control" readonly
+                 onclick="this.select()" style="font-size:.85rem" />
+          <button class="btn btn-outline-primary" onclick="copiarConviteDoModal()" id="btn-copiar-convite">
+            <i class="bi bi-clipboard"></i>
+          </button>
+        </div>
+        <div class="form-text mt-1">Toque no campo para selecionar, depois copie.</div>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- Modal Cobrança em Massa -->
 <div class="modal fade" id="modalCobranca" tabindex="-1">
   <div class="modal-dialog modal-lg">
@@ -1581,16 +1604,21 @@ async function verLinkSetup(id, nome) {
 
 async function copiarLinkConvite() {
   try {
-    const {link} = await api('GET', '/api/convite/link');
-    if (navigator.clipboard && location.protocol === 'https:') {
-      await navigator.clipboard.writeText(link);
-      toast('Link de convite copiado!');
-    } else {
-      // HTTP context: show link in a prompt so admin can copy manually
-      prompt('Copie o link de convite abaixo:', link);
-    }
+    const {link} = await fetch('/api/convite/link').then(r => r.json());
+    document.getElementById('convite-link-input').value = link;
+    new bootstrap.Modal(document.getElementById('modalConvite')).show();
   } catch(e) {
-    toast('Erro: ' + (e.message || 'não foi possível obter o link de convite'), 'danger');
+    toast('Erro ao obter link: ' + (e.message || ''), 'danger');
+  }
+}
+
+function copiarConviteDoModal() {
+  const input = document.getElementById('convite-link-input');
+  input.select();
+  if (navigator.clipboard) {
+    navigator.clipboard.writeText(input.value)
+      .then(() => { document.getElementById('btn-copiar-convite').innerHTML = '<i class="bi bi-check2"></i>'; })
+      .catch(() => {});
   }
 }
 

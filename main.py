@@ -295,7 +295,32 @@ def _gerar_usuario(email: str, db: Session) -> str:
     return username
 
 def _enviar_email(to: str, subject: str, body: str):
-    """Envia email via SMTP. Suporta porta 465 (SSL) e 587 (STARTTLS)."""
+    """Envia e-mail via Brevo API (HTTP) ou SMTP como fallback."""
+    import urllib.request as _urlreq, json as _json
+
+    brevo_key = os.getenv("BREVO_API_KEY", "")
+    if brevo_key:
+        from_email = os.getenv("SMTP_FROM", os.getenv("SMTP_USER", "voleizoupoa@gmail.com"))
+        payload = _json.dumps({
+            "sender":      {"email": from_email, "name": "Voleizou"},
+            "to":          [{"email": to}],
+            "subject":     subject,
+            "textContent": body,
+        }).encode()
+        req = _urlreq.Request(
+            "https://api.brevo.com/v3/smtp/email",
+            data=payload,
+            headers={"api-key": brevo_key, "Content-Type": "application/json"},
+        )
+        try:
+            with _urlreq.urlopen(req, timeout=15) as resp:
+                print(f"[EMAIL] Enviado via Brevo para {to}: {resp.status}")
+        except Exception as exc:
+            print(f"[EMAIL] Falha Brevo para {to}: {exc}")
+            raise
+        return
+
+    # Fallback SMTP (ambiente local)
     host = os.getenv("SMTP_HOST", "")
     if not host:
         print(f"\n[EMAIL PARA: {to}]\nAssunto: {subject}\n{body}\n")
@@ -318,9 +343,9 @@ def _enviar_email(to: str, subject: str, body: str):
                 s.starttls()
                 s.login(user, password)
                 s.sendmail(from_, [to], msg.as_string())
-        print(f"[EMAIL] Enviado para {to}")
+        print(f"[EMAIL] Enviado via SMTP para {to}")
     except Exception as exc:
-        print(f"[EMAIL] Falha ao enviar para {to}: {exc}")
+        print(f"[EMAIL] Falha SMTP para {to}: {exc}")
         raise
 
 def _checar_email_telefone(db: Session, email: str | None, telefone: str | None,
@@ -810,12 +835,15 @@ def test_email(para: str = ""):
     user     = os.getenv("SMTP_USER", "")
     password = os.getenv("SMTP_PASS", "")
     destino  = para or user
-    config = {"SMTP_HOST": host or "(não definido)", "SMTP_PORT": port,
+    brevo = os.getenv("BREVO_API_KEY", "")
+    config = {"metodo": "Brevo API" if brevo else "SMTP",
+               "BREVO_API_KEY": "***" if brevo else "(não definido)",
+               "SMTP_HOST": host or "(não definido)", "SMTP_PORT": port,
                "SMTP_USER": user or "(não definido)",
                "SMTP_PASS": "***" if password else "(não definido)",
                "destino": destino}
-    if not host:
-        return {"ok": False, "erro": "SMTP_HOST não configurado", "config": config}
+    if not brevo and not host:
+        return {"ok": False, "erro": "Nenhum método de e-mail configurado", "config": config}
     try:
         _enviar_email(destino, "Teste Voleizou", "Este é um e-mail de teste do Voleizou.")
         return {"ok": True, "mensagem": f"E-mail enviado para {destino}", "config": config}

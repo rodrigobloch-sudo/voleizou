@@ -1129,9 +1129,9 @@ let tipoUsuarioLogado = 'admin';
 let jogadorIdLogado = null;
 
 function navegarPara(page) {
-  // Checa permissão (mapeia sub-páginas de config para o slug 'config')
+  // Dashboard é sempre acessível (é a home); demais respeitam permissões
   const slug = page.startsWith('config') ? 'config' : page;
-  if (permissoesGlobais[slug] === false) {
+  if (page !== 'dashboard' && permissoesGlobais[slug] === false) {
     toast('Acesso não permitido', 'danger'); return;
   }
   document.querySelectorAll('#sidebar nav a[data-page]').forEach(a => a.classList.remove('active'));

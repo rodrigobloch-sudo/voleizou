@@ -595,6 +595,11 @@ def alterar_tipo(usuario_id: int, data: TipoUpdate, db: Session = Depends(get_db
     if not u:
         raise HTTPException(404, "Usuário não encontrado")
     u.tipo = data.tipo
+    # Sincroniza o Jogador vinculado para que o cálculo de pendências reflita o novo tipo
+    if u.jogador_id:
+        j = db.query(models.Jogador).filter(models.Jogador.id == u.jogador_id).first()
+        if j:
+            j.tipo = data.tipo
     db.commit()
     return {"ok": True}
 

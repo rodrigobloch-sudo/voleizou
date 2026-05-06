@@ -440,6 +440,52 @@ def _exigir_admin(request: Request, db: Session):
     if not u or u.tipo != "admin":
         raise HTTPException(403, "Acesso restrito a administradores")
 
+def _migrar_participacoes_tipo(db: Session, jogador: models.Jogador, tipo_novo: str):
+    """Ao mudar o tipo do jogador, ajusta presenças em jogos futuros confirmados
+    e recalcula todas as pendências de jogos confirmados com valor."""
+    hoje = date.today()
+    jogos_futuros = db.query(models.Jogo).filter(
+        models.Jogo.status == "Confirmado",
+        models.Jogo.data >= hoje,
+    ).all()
+
+    if tipo_novo == "avulso":
+        # Era mensalista → agora avulso
+        # Nos jogos futuros onde estava presente (não ausente): migra para ParticipacaoAvulso
+        for jogo in jogos_futuros:
+            ausentes = [int(x) for x in (jogo.mensalistas_ausentes or "").split(",") if x.strip()]
+            if jogador.id not in ausentes:
+                # Estava presente como mensalista → adiciona na lista de ausentes
+                ausentes.append(jogador.id)
+                jogo.mensalistas_ausentes = ','.join(str(i) for i in ausentes)
+                # Cria participação avulso se não existir
+                existe = db.query(models.ParticipacaoAvulso).filter_by(
+                    jogo_id=jogo.id, jogador_id=jogador.id
+                ).first()
+                if not existe:
+                    db.add(models.ParticipacaoAvulso(jogo_id=jogo.id, jogador_id=jogador.id))
+    else:
+        # Era avulso → agora mensalista
+        # Nos jogos futuros: remove ParticipacaoAvulso (aparecerá como mensalista automaticamente)
+        for jogo in jogos_futuros:
+            p = db.query(models.ParticipacaoAvulso).filter_by(
+                jogo_id=jogo.id, jogador_id=jogador.id
+            ).first()
+            if p:
+                db.delete(p)
+            # Remove do ausentes se estiver (limpeza)
+            ausentes = [int(x) for x in (jogo.mensalistas_ausentes or "").split(",") if x.strip()]
+            if jogador.id in ausentes:
+                ausentes.remove(jogador.id)
+                jogo.mensalistas_ausentes = ','.join(str(i) for i in ausentes) if ausentes else None
+
+    db.flush()
+
+    # Recalcula pendências de todos os jogos confirmados com valor
+    todos_confirmados = db.query(models.Jogo).filter(models.Jogo.status == "Confirmado").all()
+    for jogo in todos_confirmados:
+        _gerar_pendencias_jogo(db, jogo)
+
 def get_local_ip():
     try:
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -595,12 +641,14 @@ def alterar_tipo(usuario_id: int, data: TipoUpdate, db: Session = Depends(get_db
     u = db.query(models.Usuario).filter(models.Usuario.id == usuario_id).first()
     if not u:
         raise HTTPException(404, "Usuário não encontrado")
+    tipo_anterior = u.tipo
     u.tipo = data.tipo
-    # Sincroniza o Jogador vinculado para que o cálculo de pendências reflita o novo tipo
+    # Sincroniza o Jogador vinculado e ajusta participações em jogos
     if u.jogador_id:
         j = db.query(models.Jogador).filter(models.Jogador.id == u.jogador_id).first()
-        if j:
+        if j and tipo_anterior != data.tipo:
             j.tipo = data.tipo
+            _migrar_participacoes_tipo(db, j, data.tipo)
     db.commit()
     return {"ok": True}
 
@@ -822,11 +870,15 @@ def alterar_tipo_jogador(jogador_id: int, data: TipoUpdate,
     j = db.query(models.Jogador).filter(models.Jogador.id == jogador_id).first()
     if not j:
         raise HTTPException(404, "Jogador não encontrado")
+    tipo_anterior = j.tipo
     j.tipo = data.tipo
     # Atualiza também o Usuario vinculado, se houver
     usuario_vinc = db.query(models.Usuario).filter_by(jogador_id=jogador_id).first()
     if usuario_vinc:
         usuario_vinc.tipo = data.tipo
+    # Migra participações em jogos futuros e recalcula pendências
+    if tipo_anterior != data.tipo:
+        _migrar_participacoes_tipo(db, j, data.tipo)
     db.commit()
     return {"ok": True, "tipo": j.tipo}
 

@@ -309,7 +309,9 @@ def _enviar_email(to: str, subject: str, body: str):
         req = _urlreq.Request(
             "https://api.resend.com/emails",
             data=payload,
-            headers={"Authorization": f"Bearer {resend_key}", "Content-Type": "application/json"},
+            headers={"Authorization": f"Bearer {resend_key}",
+                     "Content-Type": "application/json",
+                     "User-Agent": "Voleizou/1.0"},
         )
         try:
             with _urlreq.urlopen(req, timeout=15) as resp:

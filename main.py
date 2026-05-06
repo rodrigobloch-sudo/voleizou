@@ -295,66 +295,18 @@ def _gerar_usuario(email: str, db: Session) -> str:
     return username
 
 def _enviar_email(to: str, subject: str, body: str):
-    """Envia e-mail via Brevo API (HTTP) ou SMTP como fallback."""
-    import urllib.request as _urlreq, json as _json
-
-    resend_key = os.getenv("RESEND_API_KEY", "")
-    if resend_key:
-        payload = _json.dumps({
-            "from":    "Voleizou <onboarding@resend.dev>",
-            "to":      [to],
-            "subject": subject,
-            "text":    body,
-        }).encode()
-        req = _urlreq.Request(
-            "https://api.resend.com/emails",
-            data=payload,
-            headers={"Authorization": f"Bearer {resend_key}",
-                     "Content-Type": "application/json",
-                     "User-Agent": "Voleizou/1.0"},
-        )
-        try:
-            with _urlreq.urlopen(req, timeout=15) as resp:
-                print(f"[EMAIL] Enviado via Resend para {to}: {resp.status}")
-        except Exception as exc:
-            print(f"[EMAIL] Falha Resend para {to}: {exc}")
-            raise
-        return
-
-    brevo_key = os.getenv("BREVO_API_KEY", "")
-    if brevo_key:
-        from_email = os.getenv("SMTP_FROM", os.getenv("SMTP_USER", "voleizoupoa@gmail.com"))
-        payload = _json.dumps({
-            "sender":      {"email": from_email, "name": "Voleizou"},
-            "to":          [{"email": to}],
-            "subject":     subject,
-            "textContent": body,
-        }).encode()
-        req = _urlreq.Request(
-            "https://api.brevo.com/v3/smtp/email",
-            data=payload,
-            headers={"api-key": brevo_key, "Content-Type": "application/json"},
-        )
-        try:
-            with _urlreq.urlopen(req, timeout=15) as resp:
-                print(f"[EMAIL] Enviado via Brevo para {to}: {resp.status}")
-        except Exception as exc:
-            print(f"[EMAIL] Falha Brevo para {to}: {exc}")
-            raise
-        return
-
-    # Fallback SMTP (ambiente local)
+    """Envia e-mail via SMTP (Brevo relay) ou imprime no log se não configurado."""
     host = os.getenv("SMTP_HOST", "")
     if not host:
         print(f"\n[EMAIL PARA: {to}]\nAssunto: {subject}\n{body}\n")
         return
-    port     = int(os.getenv("SMTP_PORT", "465"))
+    port     = int(os.getenv("SMTP_PORT", "587"))
     user     = os.getenv("SMTP_USER", "")
     password = os.getenv("SMTP_PASS", "")
     from_    = os.getenv("SMTP_FROM", user)
     msg = MIMEText(body, "plain", "utf-8")
     msg["Subject"] = subject
-    msg["From"]    = from_
+    msg["From"]    = f"Voleizou <{from_}>"
     msg["To"]      = to
     try:
         if port == 465:

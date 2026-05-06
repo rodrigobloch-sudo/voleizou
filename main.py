@@ -88,7 +88,8 @@ def _verificar_token(token: str, max_dias: int = 30) -> bool:
 _PUBLICOS_EXATOS   = {"/", "/api/login", "/api/logout", "/api/me",
                       "/api/comprovante/enviar", "/instalar-certificado", "/voleizou.crt",
                       "/cadastro", "/definir-senha",
-                      "/api/cadastro", "/api/definir-senha-convite", "/api/verificar-convite"}
+                      "/api/cadastro", "/api/definir-senha-convite", "/api/verificar-convite",
+                      "/api/convite/link"}
 _PUBLICOS_PREFIXO  = ("/static/", "/pagar/")
 _PUBLICOS_SUFIXO   = ("/info-pagamento",)
 

@@ -1590,7 +1590,7 @@ async function copiarLinkConvite() {
       prompt('Copie o link de convite abaixo:', link);
     }
   } catch(e) {
-    toast('Não foi possível obter o link de convite', 'danger');
+    toast('Erro: ' + (e.message || 'não foi possível obter o link de convite'), 'danger');
   }
 }
 

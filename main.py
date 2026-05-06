@@ -295,32 +295,36 @@ def _gerar_usuario(email: str, db: Session) -> str:
     return username
 
 def _enviar_email(to: str, subject: str, body: str):
-    """Envia e-mail via SMTP (Brevo relay) ou imprime no log se não configurado."""
-    host = os.getenv("SMTP_HOST", "")
-    if not host:
+    """Envia e-mail via Brevo API (HTTP) ou imprime no log se não configurado."""
+    import urllib.request as _urlreq, json as _json
+
+    brevo_key = os.getenv("BREVO_API_KEY", "")
+    from_email = os.getenv("SMTP_FROM", "noreply@voleizou.com.br")
+
+    if not brevo_key:
         print(f"\n[EMAIL PARA: {to}]\nAssunto: {subject}\n{body}\n")
         return
-    port     = int(os.getenv("SMTP_PORT", "587"))
-    user     = os.getenv("SMTP_USER", "")
-    password = os.getenv("SMTP_PASS", "")
-    from_    = os.getenv("SMTP_FROM", user)
-    msg = MIMEText(body, "plain", "utf-8")
-    msg["Subject"] = subject
-    msg["From"]    = f"Voleizou <{from_}>"
-    msg["To"]      = to
+
+    payload = _json.dumps({
+        "sender":      {"name": "Voleizou", "email": from_email},
+        "to":          [{"email": to}],
+        "subject":     subject,
+        "textContent": body,
+    }).encode()
+    req = _urlreq.Request(
+        "https://api.brevo.com/v3/smtp/email",
+        data=payload,
+        headers={
+            "api-key":      brevo_key,
+            "Content-Type": "application/json",
+            "User-Agent":   "Voleizou/1.0",
+        },
+    )
     try:
-        if port == 465:
-            with smtplib.SMTP_SSL(host, port, timeout=15) as s:
-                s.login(user, password)
-                s.sendmail(from_, [to], msg.as_string())
-        else:
-            with smtplib.SMTP(host, port, timeout=15) as s:
-                s.starttls()
-                s.login(user, password)
-                s.sendmail(from_, [to], msg.as_string())
-        print(f"[EMAIL] Enviado via SMTP para {to}")
+        with _urlreq.urlopen(req, timeout=20) as resp:
+            print(f"[EMAIL] Enviado via Brevo para {to}: {resp.status}")
     except Exception as exc:
-        print(f"[EMAIL] Falha SMTP para {to}: {exc}")
+        print(f"[EMAIL] Falha Brevo para {to}: {exc}")
         raise
 
 def _checar_email_telefone(db: Session, email: str | None, telefone: str | None,

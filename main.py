@@ -295,12 +295,12 @@ def _gerar_usuario(email: str, db: Session) -> str:
     return username
 
 def _enviar_email(to: str, subject: str, body: str):
-    """Envia email via SMTP. Se não configurado, imprime no log."""
+    """Envia email via SMTP. Suporta porta 465 (SSL) e 587 (STARTTLS)."""
     host = os.getenv("SMTP_HOST", "")
     if not host:
         print(f"\n[EMAIL PARA: {to}]\nAssunto: {subject}\n{body}\n")
         return
-    port     = int(os.getenv("SMTP_PORT", "587"))
+    port     = int(os.getenv("SMTP_PORT", "465"))
     user     = os.getenv("SMTP_USER", "")
     password = os.getenv("SMTP_PASS", "")
     from_    = os.getenv("SMTP_FROM", user)
@@ -309,10 +309,16 @@ def _enviar_email(to: str, subject: str, body: str):
     msg["From"]    = from_
     msg["To"]      = to
     try:
-        with smtplib.SMTP(host, port, timeout=10) as s:
-            s.starttls()
-            s.login(user, password)
-            s.sendmail(from_, [to], msg.as_string())
+        if port == 465:
+            with smtplib.SMTP_SSL(host, port, timeout=15) as s:
+                s.login(user, password)
+                s.sendmail(from_, [to], msg.as_string())
+        else:
+            with smtplib.SMTP(host, port, timeout=15) as s:
+                s.starttls()
+                s.login(user, password)
+                s.sendmail(from_, [to], msg.as_string())
+        print(f"[EMAIL] Enviado para {to}")
     except Exception as exc:
         print(f"[EMAIL] Falha ao enviar para {to}: {exc}")
         raise

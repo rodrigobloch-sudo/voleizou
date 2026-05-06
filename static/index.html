@@ -179,6 +179,7 @@
   <img src="/static/logo.png" alt="Voleizou" />
   <span>Voleizou</span>
   <span id="badge-pendentes-top" class="badge bg-danger d-none"></span>
+  <button onclick="navegarPara('dashboard')" title="Início" style="background:none;border:none;color:#fff;font-size:1.2rem;padding:4px 8px;cursor:pointer"><i class="bi bi-house-fill"></i></button>
 </div>
 
 <!-- Overlay (mobile) -->
@@ -302,13 +303,13 @@
     <div class="d-flex justify-content-between align-items-center mb-3">
       <h5 class="fw-bold mb-0">Jogadores</h5>
       <div class="d-flex gap-2 flex-wrap">
-        <button class="btn btn-outline-secondary btn-sm" onclick="copiarLinkConvite()" title="Copiar link de cadastro para novos jogadores">
+        <button id="btn-link-convite" class="btn btn-outline-secondary btn-sm" onclick="copiarLinkConvite()" title="Copiar link de cadastro para novos jogadores">
           <i class="bi bi-link-45deg me-1"></i>Link de convite
         </button>
-        <button class="btn btn-success btn-sm" onclick="abrirCobrancaMassa()">
+        <button id="btn-cobrar-massa" class="btn btn-success btn-sm" onclick="abrirCobrancaMassa()">
           <i class="bi bi-whatsapp me-1"></i>Cobrar em massa
         </button>
-        <button class="btn btn-primary btn-sm" onclick="abrirModalJogador()">
+        <button id="btn-novo-jogador" class="btn btn-primary btn-sm" onclick="abrirModalJogador()">
           <i class="bi bi-plus-lg me-1"></i>Novo jogador
         </button>
       </div>
@@ -349,7 +350,7 @@
   <div id="page-jogos" class="page">
     <div class="d-flex justify-content-between align-items-center mb-4">
       <h5 class="fw-bold mb-0">Jogos</h5>
-      <button class="btn btn-primary btn-sm" onclick="abrirModalJogo()">
+      <button id="btn-novo-jogo" class="btn btn-primary btn-sm" onclick="abrirModalJogo()">
         <i class="bi bi-plus-lg me-1"></i>Novo jogo
       </button>
     </div>
@@ -381,7 +382,7 @@
           <i class="bi bi-file-earmark-arrow-up me-1"></i>Comprovante PDF/PNG
           <input type="file" id="input-comprovante" accept=".pdf,.png,.jpg,.jpeg" style="display:none" onchange="lerComprovante(this)" />
         </label>
-        <button class="btn btn-primary btn-sm" onclick="abrirModalPagamento()">
+        <button id="btn-novo-pagamento" class="btn btn-primary btn-sm" onclick="abrirModalPagamento()">
           <i class="bi bi-plus-lg me-1"></i>Registrar pagamento
         </button>
       </div>
@@ -436,7 +437,7 @@
   <div id="page-saidas" class="page">
     <div class="d-flex justify-content-between align-items-center mb-4">
       <h5 class="fw-bold mb-0">Saídas</h5>
-      <button class="btn btn-primary btn-sm" onclick="abrirModalSaida()">
+      <button id="btn-nova-saida" class="btn btn-primary btn-sm" onclick="abrirModalSaida()">
         <i class="bi bi-plus-lg me-1"></i>Registrar saída
       </button>
     </div>
@@ -1690,13 +1691,16 @@ function renderJogadores() {
         <button class="btn btn-sm btn-success me-1" title="Enviar link pelo WhatsApp" onclick="enviarWhatsApp(${j.id},'${j.nome.replace(/'/g,"\\'")}','${j.telefone || ''}','${j.tipo}')">
           <i class="bi bi-whatsapp"></i>
         </button>
-        <button class="btn btn-sm btn-outline-secondary me-1" onclick="editarJogador(${j.id})"><i class="bi bi-pencil"></i></button>
-        ${tipoUsuarioLogado === 'admin' ? `<button class="btn btn-sm btn-outline-primary me-1" title="Mudar modalidade" onclick="mudarModalidade(${j.id},'${j.nome.replace(/'/g,"\\'")}','${j.tipo}')"><i class="bi bi-arrow-left-right"></i></button><button class="btn btn-sm btn-outline-secondary me-1" title="Link de definição de senha" onclick="verLinkSetup(${j.id},'${j.nome.replace(/'/g,"\\'")}')"><i class="bi bi-key"></i></button>` : ''}
-        ${j.ativo
-          ? `<button class="btn btn-sm btn-outline-warning me-1" title="Desativar" onclick="desativarJogador(${j.id},'${j.nome.replace(/'/g,"\\'")}')"><i class="bi bi-person-dash"></i></button>`
-          : `<button class="btn btn-sm btn-outline-success me-1" title="Reativar" onclick="reativarJogador(${j.id},'${j.nome.replace(/'/g,"\\'")}')"><i class="bi bi-person-check"></i></button>`
-        }
-        <button class="btn btn-sm btn-outline-danger" title="Excluir permanentemente" onclick="deletarJogador(${j.id},'${j.nome.replace(/'/g,"\\'")}')"><i class="bi bi-trash"></i></button>
+        ${tipoUsuarioLogado === 'admin' ? `
+          <button class="btn btn-sm btn-outline-secondary me-1" onclick="editarJogador(${j.id})"><i class="bi bi-pencil"></i></button>
+          <button class="btn btn-sm btn-outline-primary me-1" title="Mudar modalidade" onclick="mudarModalidade(${j.id},'${j.nome.replace(/'/g,"\\'")}','${j.tipo}')"><i class="bi bi-arrow-left-right"></i></button>
+          <button class="btn btn-sm btn-outline-secondary me-1" title="Link de definição de senha" onclick="verLinkSetup(${j.id},'${j.nome.replace(/'/g,"\\'")}')"><i class="bi bi-key"></i></button>
+          ${j.ativo
+            ? `<button class="btn btn-sm btn-outline-warning me-1" title="Desativar" onclick="desativarJogador(${j.id},'${j.nome.replace(/'/g,"\\'")}')"><i class="bi bi-person-dash"></i></button>`
+            : `<button class="btn btn-sm btn-outline-success me-1" title="Reativar" onclick="reativarJogador(${j.id},'${j.nome.replace(/'/g,"\\'")}')"><i class="bi bi-person-check"></i></button>`
+          }
+          <button class="btn btn-sm btn-outline-danger" title="Excluir permanentemente" onclick="deletarJogador(${j.id},'${j.nome.replace(/'/g,"\\'")}')"><i class="bi bi-trash"></i></button>
+        ` : ''}
       </td>
     </tr>`).join('');
 }
@@ -1903,12 +1907,13 @@ function renderCardJogo(j) {
           <button class="btn btn-sm btn-outline-primary" onclick="editarJogadores(${j.id}, '${j.data}')">
             <i class="bi bi-people me-1"></i>Jogadores
           </button>
+          ${tipoUsuarioLogado === 'admin' ? `
           <button class="btn btn-sm btn-outline-secondary" onclick="editarJogo(${j.id})">
             <i class="bi bi-pencil"></i>
           </button>
           <button class="btn btn-sm btn-outline-danger" onclick="excluirJogo(${j.id}, '${fmtDate(j.data)}')">
             <i class="bi bi-trash"></i>
-          </button>
+          </button>` : ''}
         </div>
       </div>
       <div class="mt-2">
@@ -2085,9 +2090,7 @@ function renderAvulsosJogo(jogo) {
   div.innerHTML = jogo.avulsos.map(a => `
     <div class="d-flex justify-content-between align-items-center py-2 border-bottom">
       <span>${a.nome}</span>
-      <button class="btn btn-sm btn-outline-danger" onclick="removerAvulsoJogo(${jogo.id}, ${a.id})">
-        <i class="bi bi-trash"></i>
-      </button>
+      ${tipoUsuarioLogado === 'admin' ? `<button class="btn btn-sm btn-outline-danger" onclick="removerAvulsoJogo(${jogo.id}, ${a.id})"><i class="bi bi-trash"></i></button>` : ''}
     </div>`).join('');
 }
 
@@ -2161,7 +2164,7 @@ async function carregarPagamentos() {
         <td class="fw-bold text-success">${fmt(p.valor)}</td>
         <td>${p.observacao || '—'}</td>
         <td class="text-end pe-3">
-          <button class="btn btn-sm btn-outline-danger" onclick="deletarPagamento(${p.id})"><i class="bi bi-trash"></i></button>
+          ${tipoUsuarioLogado === 'admin' ? `<button class="btn btn-sm btn-outline-danger" onclick="deletarPagamento(${p.id})"><i class="bi bi-trash"></i></button>` : ''}
         </td>
       </tr>`).join('');
   } catch(e) { toast(e.message, 'danger'); }
@@ -2252,7 +2255,7 @@ async function carregarSaidas() {
         <td class="fw-bold text-danger">${fmt(s.valor)}</td>
         <td>${s.observacao || '—'}</td>
         <td class="text-end pe-3">
-          <button class="btn btn-sm btn-outline-danger" onclick="deletarSaida(${s.id})"><i class="bi bi-trash"></i></button>
+          ${tipoUsuarioLogado === 'admin' ? `<button class="btn btn-sm btn-outline-danger" onclick="deletarSaida(${s.id})"><i class="bi bi-trash"></i></button>` : ''}
         </td>
       </tr>`).join('');
   } catch(e) { toast(e.message, 'danger'); }
@@ -3174,6 +3177,14 @@ async function iniciarApp(perms, tipo, jogadorId) {
   tipoUsuarioLogado = tipo || 'admin';
   jogadorIdLogado = jogadorId || null;
   aplicarPermissoes(perms || {});
+  // Esconde botões de ação para não-admins
+  if (tipoUsuarioLogado !== 'admin') {
+    ['btn-novo-jogador','btn-novo-jogo','btn-novo-pagamento','btn-nova-saida',
+     'btn-link-convite','btn-cobrar-massa'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.classList.add('d-none');
+    });
+  }
   // Carrega config de valores antes de qualquer cálculo
   try {
     configValores = await api('GET', '/api/config/valores');

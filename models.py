@@ -82,6 +82,19 @@ class Saida(Base):
     criado_em  = Column(DateTime, server_default=func.now())
 
 
+class Entrada(Base):
+    """Entradas financeiras gerais (patrocínio, prêmios, doações, etc.)."""
+    __tablename__ = "entradas"
+
+    id         = Column(Integer, primary_key=True, index=True)
+    descricao  = Column(String, nullable=False)
+    valor      = Column(Float, nullable=False)
+    data       = Column(Date, nullable=False)
+    categoria  = Column(String, nullable=True)   # Patrocínio | Prêmios | Doações | Outros
+    observacao = Column(String, nullable=True)
+    criado_em  = Column(DateTime, server_default=func.now())
+
+
 class ArquivoComprovante(Base):
     """Armazena o arquivo do comprovante diretamente no banco."""
     __tablename__ = "arquivos_comprovante"

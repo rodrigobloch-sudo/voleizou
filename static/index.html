@@ -198,6 +198,7 @@
     <a href="#" data-page="calendario"><i class="bi bi-calendar3"></i> Calendário</a>
     <a href="#" data-page="pagamentos"><i class="bi bi-cash-coin"></i> Pagamentos</a>
     <a href="#" data-page="saidas"><i class="bi bi-arrow-up-circle"></i> Saídas</a>
+    <a href="#" data-page="entradas"><i class="bi bi-arrow-down-circle"></i> Entradas</a>
     <a href="#" data-page="caixa"><i class="bi bi-safe2"></i> Caixa Geral</a>
     <a href="#" data-page="pendencias"><i class="bi bi-exclamation-circle"></i> Pendências</a>
     <a href="#" data-page="pendentes"><i class="bi bi-hourglass-split"></i> Aprovações <span id="badge-pendentes" class="badge bg-danger ms-1 d-none"></span></a>
@@ -468,6 +469,46 @@
             <th></th>
           </tr></thead>
           <tbody id="tabela-saidas"></tbody>
+        </table></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── ENTRADAS GERAIS ── -->
+  <div id="page-entradas" class="page">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+      <h5 class="fw-bold mb-0">Entradas</h5>
+      <button id="btn-nova-entrada" class="btn btn-primary btn-sm" onclick="abrirModalEntrada()">
+        <i class="bi bi-plus-lg me-1"></i>Registrar entrada
+      </button>
+    </div>
+    <div class="card">
+      <div class="card-body p-0">
+        <div class="p-3 border-bottom d-flex gap-2 align-items-center">
+          <select id="filtro-entrada-mes" class="form-select form-select-sm" style="max-width:140px" onchange="carregarEntradas()">
+            <option value="">Todos os meses</option>
+            <option value="1">Janeiro</option><option value="2">Fevereiro</option>
+            <option value="3">Março</option><option value="4">Abril</option>
+            <option value="5">Maio</option><option value="6">Junho</option>
+            <option value="7">Julho</option><option value="8">Agosto</option>
+            <option value="9">Setembro</option><option value="10">Outubro</option>
+            <option value="11">Novembro</option><option value="12">Dezembro</option>
+          </select>
+          <select id="filtro-entrada-ano" class="form-select form-select-sm" style="max-width:100px" onchange="carregarEntradas()">
+            <option value="2026">2026</option>
+            <option value="2027">2027</option>
+          </select>
+        </div>
+        <div class="table-responsive"><table class="table table-hover mb-0">
+          <thead><tr>
+            <th class="ps-3">Data</th>
+            <th>Descrição</th>
+            <th>Categoria</th>
+            <th>Valor</th>
+            <th>Obs.</th>
+            <th></th>
+          </tr></thead>
+          <tbody id="tabela-entradas"></tbody>
         </table></div>
       </div>
     </div>
@@ -958,6 +999,51 @@
   </div>
 </div>
 
+<!-- Modal Entrada -->
+<div class="modal fade" id="modalEntrada" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="modalEntradaTitulo">Registrar entrada</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="entrada-id" />
+        <div class="mb-3">
+          <label class="form-label">Descrição *</label>
+          <input type="text" class="form-control" id="entrada-desc" />
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Valor (R$) *</label>
+          <input type="number" class="form-control" id="entrada-valor" step="0.01" />
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Data *</label>
+          <input type="date" class="form-control" id="entrada-data" />
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Categoria</label>
+          <select class="form-select" id="entrada-cat">
+            <option value="">Selecione</option>
+            <option>Patrocínio</option>
+            <option>Prêmios</option>
+            <option>Doações</option>
+            <option>Outros</option>
+          </select>
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Observação</label>
+          <input type="text" class="form-control" id="entrada-obs" />
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button class="btn btn-primary" onclick="salvarEntrada()">Salvar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- Modal Novo Usuário -->
 <div class="modal fade" id="modalNovoUsuario" tabindex="-1">
   <div class="modal-dialog">
@@ -1228,6 +1314,7 @@ function navegarPara(page) {
   if (page === 'jogos')             carregarJogos();
   if (page === 'pagamentos')        { carregarJogadoresSelect(); carregarPagamentos(); }
   if (page === 'saidas')            carregarSaidas();
+  if (page === 'entradas')          carregarEntradas();
   if (page === 'caixa')             carregarCaixa();
   if (page === 'pendentes')         carregarPendentes();
   if (page === 'config-usuarios')   carregarUsuarios();
@@ -2428,6 +2515,80 @@ async function deletarSaida(id) {
     await api('DELETE', `/api/saidas/${id}`);
     toast('Saída excluída');
     carregarSaidas();
+  } catch(e) { toast(e.message, 'danger'); }
+}
+
+// ── Entradas gerais ───────────────────────────────────────────────────────────
+async function carregarEntradas() {
+  const mes = document.getElementById('filtro-entrada-mes').value;
+  const ano = document.getElementById('filtro-entrada-ano').value;
+  let url = '/api/entradas?';
+  if (mes) url += `mes=${mes}&`;
+  if (ano) url += `ano=${ano}&`;
+  try {
+    const entradas = await api('GET', url);
+    const tbody = document.getElementById('tabela-entradas');
+    if (entradas.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted py-4">Nenhuma entrada encontrada.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = entradas.map(e => `
+      <tr>
+        <td class="ps-3">${fmtDate(e.data)}</td>
+        <td>${e.descricao}</td>
+        <td>${e.categoria || '—'}</td>
+        <td class="fw-bold text-success">${fmt(e.valor)}</td>
+        <td>${e.observacao || '—'}</td>
+        <td class="text-end pe-3">
+          ${tipoUsuarioLogado === 'admin' ? `
+            <button class="btn btn-sm btn-outline-secondary me-1" onclick="abrirModalEntrada(${e.id},'${e.descricao.replace(/'/g,"\\'")}',${e.valor},'${e.data}','${e.categoria||''}','${(e.observacao||'').replace(/'/g,"\\'")}')"><i class="bi bi-pencil"></i></button>
+            <button class="btn btn-sm btn-outline-danger" onclick="deletarEntrada(${e.id})"><i class="bi bi-trash"></i></button>` : ''}
+        </td>
+      </tr>`).join('');
+  } catch(e) { toast(e.message, 'danger'); }
+}
+
+function abrirModalEntrada(id, desc, valor, data, cat, obs) {
+  document.getElementById('entrada-id').value = id || '';
+  document.getElementById('entrada-desc').value = desc || '';
+  document.getElementById('entrada-valor').value = valor || '';
+  document.getElementById('entrada-data').value = data || today();
+  document.getElementById('entrada-cat').value = cat || '';
+  document.getElementById('entrada-obs').value = obs || '';
+  document.getElementById('modalEntradaTitulo').textContent = id ? 'Editar entrada' : 'Registrar entrada';
+  new bootstrap.Modal('#modalEntrada').show();
+}
+
+async function salvarEntrada() {
+  const id = document.getElementById('entrada-id').value;
+  const desc = document.getElementById('entrada-desc').value.trim();
+  const valor = parseFloat(document.getElementById('entrada-valor').value);
+  const data = document.getElementById('entrada-data').value;
+  if (!desc || !valor || !data) { toast('Preencha os campos obrigatórios', 'warning'); return; }
+  const body = {
+    descricao: desc, valor, data,
+    categoria: document.getElementById('entrada-cat').value || null,
+    observacao: document.getElementById('entrada-obs').value || null,
+  };
+  try {
+    if (id) {
+      await api('PUT', `/api/entradas/${id}`, body);
+      toast('Entrada atualizada!');
+    } else {
+      await api('POST', '/api/entradas', body);
+      toast('Entrada registrada!');
+    }
+    bootstrap.Modal.getInstance('#modalEntrada').hide();
+    carregarEntradas();
+  } catch(e) { toast(e.message, 'danger'); }
+}
+
+async function deletarEntrada(id) {
+  if (!confirm('Excluir esta entrada?')) return;
+  try {
+    await api('DELETE', `/api/entradas/${id}`);
+    toast('Entrada excluída');
+    carregarEntradas();
   } catch(e) { toast(e.message, 'danger'); }
 }
 

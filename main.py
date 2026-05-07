@@ -27,7 +27,7 @@ ENCRYPTION_KEY  = os.getenv("ENCRYPTION_KEY",  "")
 # Menus do sistema — adicione aqui sempre que criar uma nova seção
 MENUS_SLUGS = [
     "dashboard", "jogadores", "jogos", "calendario", "pagamentos",
-    "saidas", "caixa", "pendencias", "pendentes", "config",
+    "saidas", "entradas", "caixa", "pendencias", "pendentes", "config",
     "config-valores",
 ]
 
@@ -113,6 +113,7 @@ def _migrar():
     with _engine.connect() as conn:
         from sqlalchemy import text as _text
         migrações = [
+            ("entradas",  "id",              "INTEGER"),  # força criação via models
             ("jogadores", "posicao",         "VARCHAR"),
             ("jogadores", "numero_camisa",    "INTEGER"),
             ("jogadores", "data_nascimento",  "DATE"),
@@ -942,6 +943,14 @@ class SaidaCreate(BaseModel):
     observacao: Optional[str] = None
 
 
+class EntradaCreate(BaseModel):
+    descricao: str
+    valor: float
+    data: date
+    categoria: Optional[str] = None
+    observacao: Optional[str] = None
+
+
 # ── Jogadores ─────────────────────────────────────────────────────────────────
 
 @app.get("/api/jogadores")
@@ -1535,6 +1544,55 @@ def deletar_saida(saida_id: int, request: Request, db: Session = Depends(get_db)
     return {"ok": True}
 
 
+# ── Entradas gerais ───────────────────────────────────────────────────────────
+
+@app.get("/api/entradas")
+def listar_entradas(mes: Optional[int] = None, ano: Optional[int] = None, db: Session = Depends(get_db)):
+    q = db.query(models.Entrada)
+    if mes:
+        q = q.filter(extract("month", models.Entrada.data) == mes)
+    if ano:
+        q = q.filter(extract("year", models.Entrada.data) == ano)
+    entradas = q.order_by(models.Entrada.data.desc()).all()
+    return [
+        {
+            "id": e.id, "descricao": e.descricao, "valor": e.valor,
+            "data": e.data.isoformat(), "categoria": e.categoria, "observacao": e.observacao,
+        }
+        for e in entradas
+    ]
+
+@app.post("/api/entradas", status_code=201)
+def criar_entrada(data: EntradaCreate, request: Request, db: Session = Depends(get_db)):
+    _exigir_admin(request, db)
+    e = models.Entrada(**data.model_dump())
+    db.add(e)
+    db.commit()
+    db.refresh(e)
+    return {"id": e.id, "descricao": e.descricao, "valor": e.valor, "data": e.data.isoformat()}
+
+@app.put("/api/entradas/{entrada_id}")
+def editar_entrada(entrada_id: int, data: EntradaCreate, request: Request, db: Session = Depends(get_db)):
+    _exigir_admin(request, db)
+    e = db.query(models.Entrada).filter(models.Entrada.id == entrada_id).first()
+    if not e:
+        raise HTTPException(404, "Entrada não encontrada")
+    for k, v in data.model_dump().items():
+        setattr(e, k, v)
+    db.commit()
+    return {"ok": True}
+
+@app.delete("/api/entradas/{entrada_id}")
+def deletar_entrada(entrada_id: int, request: Request, db: Session = Depends(get_db)):
+    _exigir_admin(request, db)
+    e = db.query(models.Entrada).filter(models.Entrada.id == entrada_id).first()
+    if not e:
+        raise HTTPException(404, "Entrada não encontrada")
+    db.delete(e)
+    db.commit()
+    return {"ok": True}
+
+
 # ── Dashboard ─────────────────────────────────────────────────────────────────
 
 @app.get("/api/dashboard")
@@ -1635,7 +1693,12 @@ def dashboard(mes: Optional[int] = None, ano: Optional[int] = None, db: Session 
         p.valor for p in pagamentos_avulso_mes
         if not (p.observacao or "").startswith("PENDENTE|")
     )
-    total_entradas = total_entradas_mensalidade + total_entradas_avulso
+    entradas_gerais_mes = db.query(models.Entrada).filter(
+        extract("month", models.Entrada.data) == mes,
+        extract("year", models.Entrada.data) == ano,
+    ).all()
+    total_entradas_gerais = sum(e.valor for e in entradas_gerais_mes)
+    total_entradas = total_entradas_mensalidade + total_entradas_avulso + total_entradas_gerais
 
     saidas_mes = db.query(models.Saida).filter(
         extract("month", models.Saida.data) == mes,
@@ -2156,7 +2219,12 @@ def caixa_geral(db: Session = Depends(get_db)):
         (models.Pagamento.observacao == None) |
         (~models.Pagamento.observacao.like("PENDENTE|%"))
     ).all()
-    total_entradas = sum(p.valor for p in todos_pagamentos)
+    total_pagamentos = sum(p.valor for p in todos_pagamentos)
+
+    # Entradas gerais (patrocínio, prêmios, doações, outros)
+    todas_entradas_gerais = db.query(models.Entrada).all()
+    total_entradas_gerais = sum(e.valor for e in todas_entradas_gerais)
+    total_entradas = total_pagamentos + total_entradas_gerais
 
     # Todas as saídas
     todas_saidas = db.query(models.Saida).all()
@@ -2168,6 +2236,9 @@ def caixa_geral(db: Session = Depends(get_db)):
     for p in todos_pagamentos:
         chave = f"{p.data_pagamento.year}-{p.data_pagamento.month:02d}"
         por_mes[chave]["entradas"] += p.valor
+    for e in todas_entradas_gerais:
+        chave = f"{e.data.year}-{e.data.month:02d}"
+        por_mes[chave]["entradas"] += e.valor
     for s in todas_saidas:
         chave = f"{s.data.year}-{s.data.month:02d}"
         por_mes[chave]["saidas"] += s.valor

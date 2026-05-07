@@ -300,8 +300,12 @@ def _corrigir_usernames():
             esperado = f"{primeiro}.{ultimo}" if ultimo and ultimo != primeiro else primeiro
             if not esperado:
                 continue
-            # Só corrige se o username atual NÃO começa com o padrão esperado
-            if not u.usuario.startswith(esperado.split('.')[0] + '.') and u.usuario != esperado:
+            # Considera correto apenas se for exatamente o esperado,
+            # ou esperado + sufixo numérico sem zero à esquerda (ex: arthur.rigon2)
+            # Sufixos como "0708" (vindos de email) são recriados corretamente
+            ja_correto = (u.usuario == esperado or
+                          bool(re.match(rf'^{re.escape(esperado)}[1-9][0-9]*$', u.usuario)))
+            if not ja_correto:
                 # Gera username único
                 candidato, i = esperado, 2
                 while db.query(models.Usuario).filter(

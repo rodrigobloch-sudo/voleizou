@@ -333,6 +333,33 @@ def _seed_pendencias_eventos():
 
 _seed_pendencias_eventos()
 
+def _corrigir_tipo_pagamentos_evento():
+    """Corrige registros Pagamento que foram gravados como tipo=mensalidade mas
+    na verdade pagaram pendências de evento (observacao contém pendencias_ids com IDs reais)."""
+    import re
+    db = SessionLocal()
+    try:
+        candidatos = db.query(models.Pagamento).filter(
+            models.Pagamento.tipo == "mensalidade",
+            models.Pagamento.observacao.isnot(None),
+            models.Pagamento.observacao.like("%pendencias_ids:%"),
+        ).all()
+        corrigidos = 0
+        for p in candidatos:
+            m = re.search(r'pendencias_ids:(\d[\d,]*)', p.observacao or "")
+            if m:   # há IDs reais → é pagamento de evento, não mensalidade
+                p.tipo = "avulso"
+                corrigidos += 1
+        if corrigidos:
+            db.commit()
+            print(f"[INIT] {corrigidos} pagamento(s) corrigido(s): tipo mensalidade→avulso (eram de evento).")
+    except Exception as e:
+        print(f"[INIT] Erro ao corrigir tipos de pagamento: {e}")
+    finally:
+        db.close()
+
+_corrigir_tipo_pagamentos_evento()
+
 def _get_config(db: Session) -> dict:
     """Retorna dict com os valores de configuração convertidos para float."""
     rows = db.query(models.Configuracao).all()
@@ -477,6 +504,15 @@ def _checar_email_telefone(db: Session, email: str | None, telefone: str | None,
     if telefone:
         if q_base.filter(models.Jogador.telefone == telefone).first():
             raise HTTPException(400, "Este telefone já está cadastrado para outro jogador")
+
+def _pagamento_e_mensalidade(p) -> bool:
+    """Retorna True apenas se o pagamento é de mensalidade (não de evento).
+    Pagamentos de evento têm pendencias_ids com IDs reais no observacao."""
+    import re
+    obs = p.observacao or ""
+    if re.search(r'pendencias_ids:\d', obs):
+        return False   # contém IDs de evento → não é mensalidade
+    return p.tipo == "mensalidade"
 
 def _status_efetivo(data_jogo, status_raw: str | None) -> str:
     """Retorna o status real do jogo, aplicando regra de auto-Realizado para datas passadas."""
@@ -1701,7 +1737,9 @@ def dashboard(mes: Optional[int] = None, ano: Optional[int] = None, db: Session 
     for m in mensalistas:
         pagamentos_m = [
             p for p in pagamentos_mes
-            if p.jogador_id == m.id and not (p.observacao or "").startswith("PENDENTE|")
+            if p.jogador_id == m.id
+            and _pagamento_e_mensalidade(p)
+            and not (p.observacao or "").startswith("PENDENTE|")
         ]
         valor_pago = sum(p.valor for p in pagamentos_m)
         ultimo_pag = max(pagamentos_m, key=lambda p: p.data_pagamento) if pagamentos_m else None
@@ -1900,7 +1938,7 @@ def info_pagamento_jogador(jogador_id: int, db: Session = Depends(get_db)):
                 extract("month", models.Pagamento.data_pagamento) == m,
                 extract("year",  models.Pagamento.data_pagamento) == y,
             ).all()
-            pago = sum(p.valor for p in pags if not (p.observacao or "").startswith("PENDENTE|"))
+            pago = sum(p.valor for p in pags if _pagamento_e_mensalidade(p) and not (p.observacao or "").startswith("PENDENTE|"))
             falta = round(VALOR_MENSALIDADE - pago, 2)
             if falta > 0:
                 pendencias_abertas.append({
@@ -2108,7 +2146,7 @@ def _pendencias_jogador(jogador_id: int, db: Session, cfg: dict) -> list:
                 extract("month", models.Pagamento.data_pagamento) == m,
                 extract("year",  models.Pagamento.data_pagamento) == y,
             ).all()
-            pago  = sum(p.valor for p in pags if not (p.observacao or "").startswith("PENDENTE|"))
+            pago  = sum(p.valor for p in pags if _pagamento_e_mensalidade(p) and not (p.observacao or "").startswith("PENDENTE|"))
             falta = round(VALOR_MENSALIDADE - pago, 2)
             if falta > 0:
                 itens.append({"id": None, "tipo": "mensalidade",
@@ -2176,7 +2214,7 @@ def listar_pendencias(request: Request, db: Session = Depends(get_db)):
                 extract("month", models.Pagamento.data_pagamento) == m,
                 extract("year",  models.Pagamento.data_pagamento) == y,
             ).all()
-            pago  = sum(p.valor for p in pags if not (p.observacao or "").startswith("PENDENTE|"))
+            pago  = sum(p.valor for p in pags if _pagamento_e_mensalidade(p) and not (p.observacao or "").startswith("PENDENTE|"))
             falta = round(VALOR_MENSALIDADE - pago, 2)
             if falta > 0:
                 if j.id not in result:

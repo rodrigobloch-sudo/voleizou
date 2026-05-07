@@ -595,11 +595,17 @@ def _exigir_admin(request: Request, db: Session):
         raise HTTPException(403, "Acesso restrito a administradores")
 
 def _marcar_ausente_em_jogos_fechados(db: Session, jogador_id: int):
-    """Adiciona o jogador em mensalistas_ausentes de todos os jogos Confirmados e Realizados.
-    Usado ao criar novo mensalista ou ao migrar avulso→mensalista, para que jogos já
-    fechados não o incluam retroativamente."""
+    """Adiciona o jogador em mensalistas_ausentes de todos os jogos que já aconteceram:
+    - status Confirmado ou Realizado (independente da data), OU
+    - data anterior a hoje (efetivamente realizado, mesmo que status ainda seja Planejado).
+    Usado ao criar novo mensalista ou ao migrar avulso→mensalista."""
+    from sqlalchemy import or_ as _or_jf
+    hoje = date.today()
     jogos_fechados = db.query(models.Jogo).filter(
-        models.Jogo.status.in_(["Confirmado", "Realizado"])
+        _or_jf(
+            models.Jogo.status.in_(["Confirmado", "Realizado"]),
+            models.Jogo.data < hoje,
+        )
     ).all()
     for jogo in jogos_fechados:
         ausentes = [int(x) for x in (jogo.mensalistas_ausentes or "").split(",") if x.strip()]

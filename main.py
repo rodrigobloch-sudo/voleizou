@@ -2296,6 +2296,18 @@ def listar_pendencias(request: Request, db: Session = Depends(get_db)):
         entry["total"] = round(sum(i["valor"] for i in entry["itens"]), 2)
     return lista
 
+@app.post("/api/pendencias/{pendencia_id}/quitar")
+def quitar_pendencia(pendencia_id: int, request: Request, db: Session = Depends(get_db)):
+    """Admin: marca uma pendência como quitada manualmente."""
+    _exigir_admin(request, db)
+    p = db.query(models.Pendencia).filter(models.Pendencia.id == pendencia_id).first()
+    if not p:
+        raise HTTPException(404, "Pendência não encontrada")
+    p.quitado = True
+    p.quitado_em = datetime.utcnow()
+    db.commit()
+    return {"ok": True}
+
 @app.delete("/api/pendencias/{pendencia_id}")
 def excluir_pendencia(pendencia_id: int, request: Request, db: Session = Depends(get_db)):
     """Admin: remove uma pendência de evento."""

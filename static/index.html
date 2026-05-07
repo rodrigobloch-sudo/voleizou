@@ -3604,6 +3604,7 @@ async function carregarPendencias() {
           </span>
           <div class="d-flex align-items-center gap-2">
             <strong class="text-danger">${fmt(it.valor)}</strong>
+            ${isAdmin && it.id ? `<button class="btn btn-link btn-sm p-0 text-success me-1" title="Quitar manualmente" onclick="quitarPendencia(${it.id})"><i class="bi bi-check-circle"></i></button>` : ''}
             ${isAdmin && it.id ? `<button class="btn btn-link btn-sm p-0 text-danger" title="Excluir pendência" onclick="excluirPendencia(${it.id})"><i class="bi bi-x-circle"></i></button>` : ''}
           </div>
         </div>`).join('');
@@ -3725,6 +3726,15 @@ async function excluirPendencia(id) {
     toast('Pendência excluída.');
     carregarPendencias();
   } catch(e) { toast('Erro ao excluir pendência.', 'danger'); }
+}
+
+async function quitarPendencia(id) {
+  if (!confirm('Marcar esta pendência como quitada?')) return;
+  try {
+    await api('POST', `/api/pendencias/${id}/quitar`);
+    toast('Pendência quitada.');
+    carregarPendencias();
+  } catch(e) { toast('Erro ao quitar pendência.', 'danger'); }
 }
 
 // ── Config Valores ────────────────────────────────────────────────────────────

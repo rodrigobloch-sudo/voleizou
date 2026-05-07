@@ -1001,6 +1001,32 @@
   </div>
 </div>
 
+<!-- Modal Seleção de Pendências para WPP -->
+<div class="modal fade" id="modalSelecaoPendencias" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="bi bi-whatsapp me-2 text-success"></i>Cobrar via WhatsApp</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <p class="text-muted small mb-3">Selecione as pendências que deseja cobrar de <strong id="sel-pend-nome"></strong>:</p>
+        <div id="sel-pend-lista" onchange="atualizarTotalSelecao()"></div>
+        <div class="d-flex justify-content-between align-items-center mt-3 pt-2 border-top">
+          <span class="text-muted small">Total selecionado</span>
+          <strong class="text-danger" id="sel-pend-total">R$ 0,00</strong>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button class="btn btn-success" onclick="enviarCobrancaWpp()">
+          <i class="bi bi-whatsapp me-1"></i>Abrir WhatsApp
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- Modal Vincular Jogador -->
 <div class="modal fade" id="modalVincularJogador" tabindex="-1">
   <div class="modal-dialog modal-sm">
@@ -3206,6 +3232,10 @@ async function carregarPendencias() {
       return;
     }
 
+    // Guarda entries para o modal de seleção
+    window._pendenciasEntries = {};
+    lista.forEach(e => { window._pendenciasEntries[e.jogador.id] = e; });
+
     div.innerHTML = lista.map(entry => {
       const j = entry.jogador;
       const tipoBadge = j.tipo === 'mensalista'
@@ -3223,14 +3253,6 @@ async function carregarPendencias() {
           </div>
         </div>`).join('');
       const hasTel = j.telefone && j.telefone.replace(/\D/g, '').length >= 10;
-      // Monta a mensagem WPP e codifica para o atributo data-*
-      const wppMsg = hasTel ? (() => {
-        const fmtV = v => 'R$ ' + Number(v).toFixed(2).replace('.', ',');
-        const linhas = entry.itens.map(it => `- ${it.descricao}: ${fmtV(it.valor)}`).join('\n');
-        const link = `${baseUrl}/pagar/${j.id}`;
-        return encodeURIComponent(`Olá ${j.nome}!\n\nSuas pendências no Voleizou:\n${linhas}\n\nTotal: ${fmtV(entry.total)}\n\nPague pelo link:\n${link}`);
-      })() : '';
-      const tel = hasTel ? (s => s.startsWith('55') ? s : '55' + s)(j.telefone.replace(/\D/g,'')) : '';
 
       if (!isAdmin) {
         return `
@@ -3265,9 +3287,9 @@ async function carregarPendencias() {
           </div>
           <div class="border-top pt-2">${itens}</div>
           <div class="mt-3 d-flex gap-2">
-            ${hasTel ? `<a class="btn btn-sm btn-success" href="https://wa.me/${tel}?text=${wppMsg}" target="_blank" rel="noopener noreferrer">
+            ${hasTel ? `<button class="btn btn-sm btn-success" onclick="abrirSelecaoPendencias(${j.id})">
               <i class="bi bi-whatsapp me-1"></i>Cobrar via WhatsApp
-            </a>` : ''}
+            </button>` : ''}
             <a href="/pagar/${j.id}" target="_blank" class="btn btn-sm btn-outline-primary">
               <i class="bi bi-link-45deg me-1"></i>Link de pagamento
             </a>
@@ -3276,6 +3298,69 @@ async function carregarPendencias() {
       </div>`;
     }).join('');
   } catch(e) { div.innerHTML = `<div class="alert alert-danger">Erro ao carregar pendências.</div>`; }
+}
+
+let _selecaoPendenciasJogadorId = null;
+
+function abrirSelecaoPendencias(jogadorId) {
+  const entry = window._pendenciasEntries && window._pendenciasEntries[jogadorId];
+  if (!entry) return;
+  _selecaoPendenciasJogadorId = jogadorId;
+  const j = entry.jogador;
+  document.getElementById('sel-pend-nome').textContent = j.nome;
+
+  const fmtV = v => 'R$ ' + Number(v).toFixed(2).replace('.', ',');
+  document.getElementById('sel-pend-lista').innerHTML = entry.itens.map((it, idx) => `
+    <div class="form-check py-2 border-bottom">
+      <input class="form-check-input" type="checkbox" id="sel-pend-${idx}" checked
+             data-descricao="${it.descricao.replace(/"/g,'&quot;')}"
+             data-valor="${it.valor}"
+             data-tipo="${it.tipo}" />
+      <label class="form-check-label d-flex justify-content-between w-100" for="sel-pend-${idx}">
+        <span>
+          <span class="badge ${it.tipo === 'mensalidade' ? 'bg-warning text-dark' : 'bg-info text-dark'} me-1" style="font-size:.7rem">
+            ${it.tipo === 'mensalidade' ? 'Mensalidade' : 'Evento'}
+          </span>
+          ${it.descricao}
+        </span>
+        <strong class="text-danger ms-2">${fmtV(it.valor)}</strong>
+      </label>
+    </div>`).join('');
+
+  atualizarTotalSelecao();
+  new bootstrap.Modal('#modalSelecaoPendencias').show();
+}
+
+function atualizarTotalSelecao() {
+  const checks = document.querySelectorAll('#sel-pend-lista .form-check-input');
+  const total = [...checks].filter(c => c.checked).reduce((s, c) => s + parseFloat(c.dataset.valor), 0);
+  document.getElementById('sel-pend-total').textContent = 'R$ ' + total.toFixed(2).replace('.', ',');
+}
+
+function enviarCobrancaWpp() {
+  const entry = window._pendenciasEntries[_selecaoPendenciasJogadorId];
+  if (!entry) return;
+  const j = entry.jogador;
+
+  const checks = [...document.querySelectorAll('#sel-pend-lista .form-check-input:checked')];
+  if (checks.length === 0) { toast('Selecione ao menos uma pendência.', 'warning'); return; }
+
+  const fmtV = v => 'R$ ' + Number(v).toFixed(2).replace('.', ',');
+  const itensSel = checks.map(c => ({ descricao: c.dataset.descricao, valor: parseFloat(c.dataset.valor), tipo: c.dataset.tipo }));
+  const total = itensSel.reduce((s, it) => s + it.valor, 0);
+  const temMensalidade = itensSel.some(it => it.tipo === 'mensalidade');
+
+  const linhas = itensSel.map(it => `- ${it.descricao}: ${fmtV(it.valor)}`).join('\n');
+  const link = `${baseUrl}/pagar/${j.id}`;
+  const obs = temMensalidade ? '\n\nA mensalidade deve ser paga até o dia 10 de cada mês.' : '';
+
+  const msg = `Olá ${j.nome}!\n\nSuas pendências no Voleizou:\n${linhas}\n\nTotal: ${fmtV(total)}\n\nPague pelo link:\n${link}${obs}`;
+
+  const tel = j.telefone.replace(/\D/g, '');
+  const numero = tel.startsWith('55') ? tel : '55' + tel;
+
+  bootstrap.Modal.getInstance('#modalSelecaoPendencias').hide();
+  abrirUrl(`https://wa.me/${numero}?text=${encodeURIComponent(msg)}`);
 }
 
 async function excluirPendencia(id) {

@@ -557,6 +557,21 @@ def _exigir_admin(request: Request, db: Session):
     if not u or u.tipo != "admin":
         raise HTTPException(403, "Acesso restrito a administradores")
 
+def _marcar_ausente_em_jogos_fechados(db: Session, jogador_id: int):
+    """Adiciona o jogador em mensalistas_ausentes de todos os jogos Confirmados e Realizados.
+    Usado ao criar novo mensalista ou ao migrar avulso→mensalista, para que jogos já
+    fechados não o incluam retroativamente."""
+    jogos_fechados = db.query(models.Jogo).filter(
+        models.Jogo.status.in_(["Confirmado", "Realizado"])
+    ).all()
+    for jogo in jogos_fechados:
+        ausentes = [int(x) for x in (jogo.mensalistas_ausentes or "").split(",") if x.strip()]
+        if jogador_id not in ausentes:
+            ausentes.append(jogador_id)
+            jogo.mensalistas_ausentes = ','.join(str(i) for i in ausentes)
+    db.flush()
+
+
 def _migrar_participacoes_tipo(db: Session, jogador: models.Jogador, tipo_novo: str):
     """Ao mudar o tipo do jogador, ajusta presenças em jogos futuros confirmados
     e recalcula todas as pendências de jogos confirmados com valor."""
@@ -583,14 +598,16 @@ def _migrar_participacoes_tipo(db: Session, jogador: models.Jogador, tipo_novo: 
                     db.add(models.ParticipacaoAvulso(jogo_id=jogo.id, jogador_id=jogador.id))
     else:
         # Era avulso → agora mensalista
-        # Nos jogos futuros: remove ParticipacaoAvulso (aparecerá como mensalista automaticamente)
+        # Jogos Confirmados/Realizados: marca como ausente (não entra retroativamente)
+        _marcar_ausente_em_jogos_fechados(db, jogador.id)
+        # Nos jogos futuros Confirmados: remove ParticipacaoAvulso (aparecerá como mensalista)
         for jogo in jogos_futuros:
             p = db.query(models.ParticipacaoAvulso).filter_by(
                 jogo_id=jogo.id, jogador_id=jogador.id
             ).first()
             if p:
                 db.delete(p)
-            # Remove do ausentes se estiver (limpeza)
+            # Remove do ausentes se estiver (foi adicionado acima mas jogo é futuro/aberto)
             ausentes = [int(x) for x in (jogo.mensalistas_ausentes or "").split(",") if x.strip()]
             if jogador.id in ausentes:
                 ausentes.remove(jogador.id)
@@ -1006,6 +1023,10 @@ def criar_jogador(data: JogadorCreate, db: Session = Depends(get_db)):
     dados["rg"]  = _encrypt(dados.get("rg"))
     j = models.Jogador(**dados)
     db.add(j)
+    db.flush()  # garante j.id antes de usar
+    # Novo mensalista não entra em jogos já Confirmados ou Realizados
+    if j.tipo == "mensalista":
+        _marcar_ausente_em_jogos_fechados(db, j.id)
     db.commit()
     db.refresh(j)
     return {"id": j.id, "nome": j.nome, "tipo": j.tipo, "email": j.email,

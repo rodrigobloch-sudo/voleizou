@@ -36,6 +36,7 @@ class Jogo(Base):
     mensalistas_ausentes = Column(String, nullable=True)  # IDs separados por vírgula
     status               = Column(String, nullable=True, default="Planejado")  # Planejado|Confirmado|Cancelado|Realizado
     endereco             = Column(String, nullable=True)
+    local_nome           = Column(String, nullable=True)
     criado_em            = Column(DateTime, server_default=func.now())
 
     participacoes = relationship("ParticipacaoAvulso", back_populates="jogo", cascade="all, delete-orphan")
@@ -148,6 +149,16 @@ class Pendencia(Base):
 
     jogador = relationship("Jogador", back_populates="pendencias_financeiras")
     jogo    = relationship("Jogo",    back_populates="pendencias")
+
+
+class Local(Base):
+    """Locais de jogo reutilizáveis."""
+    __tablename__ = "locais"
+
+    id        = Column(Integer, primary_key=True, index=True)
+    nome      = Column(String, nullable=False, unique=True)
+    endereco  = Column(String, nullable=True)
+    criado_em = Column(DateTime, server_default=func.now())
 
 
 class Configuracao(Base):

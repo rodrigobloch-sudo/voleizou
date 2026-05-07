@@ -125,6 +125,7 @@ def _migrar():
             ("jogos",     "valor",                 "REAL"),
             ("jogos",     "status",                "VARCHAR"),
             ("jogos",     "endereco",              "VARCHAR"),
+            ("jogos",     "local_nome",            "VARCHAR"),
             ("usuarios",  "tipo",                  "VARCHAR"),
             ("usuarios",  "jogador_id",            "INTEGER"),
         ]
@@ -929,14 +930,20 @@ class JogoCreate(BaseModel):
     valor: Optional[float] = None
     status: Optional[str] = "Planejado"
     endereco: Optional[str] = None
+    local_nome: Optional[str] = None
 
 class JogoUpdate(BaseModel):
     data: Optional[date] = None
     categoria: Optional[str] = None
     observacao: Optional[str] = None
     endereco: Optional[str] = None
+    local_nome: Optional[str] = None
     valor: Optional[float] = None
     status: Optional[str] = None
+
+class LocalCreate(BaseModel):
+    nome: str
+    endereco: Optional[str] = None
 
 class ParticipacaoCreate(BaseModel):
     jogador_id: int
@@ -1347,6 +1354,51 @@ def redefinir_senha(data: RedefinirSenhaRequest, db: Session = Depends(get_db)):
     return {"ok": True}
 
 
+# ── Locais ────────────────────────────────────────────────────────────────────
+
+@app.get("/api/locais")
+def listar_locais(db: Session = Depends(get_db)):
+    locais = db.query(models.Local).order_by(models.Local.nome).all()
+    return [{"id": l.id, "nome": l.nome, "endereco": l.endereco} for l in locais]
+
+@app.post("/api/locais", status_code=201)
+def criar_local(data: LocalCreate, request: Request, db: Session = Depends(get_db)):
+    _exigir_admin(request, db)
+    existente = db.query(models.Local).filter(models.Local.nome == data.nome).first()
+    if existente:
+        # Atualiza endereço se já existe
+        if data.endereco:
+            existente.endereco = data.endereco
+            db.commit()
+        return {"id": existente.id, "nome": existente.nome, "endereco": existente.endereco}
+    l = models.Local(**data.model_dump())
+    db.add(l)
+    db.commit()
+    db.refresh(l)
+    return {"id": l.id, "nome": l.nome, "endereco": l.endereco}
+
+@app.put("/api/locais/{local_id}")
+def editar_local(local_id: int, data: LocalCreate, request: Request, db: Session = Depends(get_db)):
+    _exigir_admin(request, db)
+    l = db.query(models.Local).filter(models.Local.id == local_id).first()
+    if not l:
+        raise HTTPException(404, "Local não encontrado")
+    l.nome = data.nome
+    l.endereco = data.endereco
+    db.commit()
+    return {"id": l.id, "nome": l.nome, "endereco": l.endereco}
+
+@app.delete("/api/locais/{local_id}")
+def deletar_local(local_id: int, request: Request, db: Session = Depends(get_db)):
+    _exigir_admin(request, db)
+    l = db.query(models.Local).filter(models.Local.id == local_id).first()
+    if not l:
+        raise HTTPException(404, "Local não encontrado")
+    db.delete(l)
+    db.commit()
+    return {"ok": True}
+
+
 # ── Jogos ─────────────────────────────────────────────────────────────────────
 
 def _jogo_dict(jogo) -> dict:
@@ -1361,6 +1413,7 @@ def _jogo_dict(jogo) -> dict:
         "avulsos": avulsos, "total_avulsos": len(avulsos),
         "mensalistas_ausentes": ausentes,
         "endereco": jogo.endereco,
+        "local_nome": jogo.local_nome,
     }
 
 @app.get("/api/jogos")

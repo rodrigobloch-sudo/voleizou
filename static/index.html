@@ -790,10 +790,20 @@
           <div class="form-text">O valor por jogador é recalculado conforme os participantes mudam.</div>
         </div>
         <div class="mb-3">
-          <label class="form-label">Endereço / Local</label>
+          <label class="form-label">Local</label>
+          <div class="input-group mb-2">
+            <select class="form-select" id="jogo-local-select" onchange="selecionarLocal(this.value)">
+              <option value="">— Selecionar local salvo —</option>
+            </select>
+            <button class="btn btn-outline-secondary" type="button" onclick="abrirGerenciarLocais()" title="Gerenciar locais">
+              <i class="bi bi-pencil-square"></i>
+            </button>
+          </div>
+          <input type="text" class="form-control mb-2" id="jogo-local-nome"
+                 placeholder="Nome do local (ex: Ginásio do Colégio X)" />
           <input type="text" class="form-control" id="jogo-endereco"
-                 placeholder="Ex: Rua das Palmeiras, 100 — Porto Alegre" />
-          <div class="form-text">Se preenchido, será exibido com link para o Google Maps.</div>
+                 placeholder="Endereço (ex: Rua das Palmeiras, 100 — Porto Alegre)" />
+          <div class="form-text">O endereço será exibido com link para o Google Maps.</div>
         </div>
         <div class="mb-3">
           <label class="form-label">Observação</label>
@@ -946,6 +956,44 @@
         <button class="btn btn-success" onclick="salvarPagamentoComprovante()">
           <i class="bi bi-check-lg me-1"></i>Salvar pagamento
         </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal Gerenciar Locais -->
+<div class="modal fade" id="modalLocais" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Locais de jogo</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="card mb-3">
+          <div class="card-body">
+            <h6 class="fw-semibold mb-3" id="local-form-titulo">Novo local</h6>
+            <input type="hidden" id="local-edit-id" />
+            <div class="row g-2 mb-2">
+              <div class="col-5">
+                <input type="text" class="form-control" id="local-edit-nome" placeholder="Nome do local *" />
+              </div>
+              <div class="col-5">
+                <input type="text" class="form-control" id="local-edit-end" placeholder="Endereço (opcional)" />
+              </div>
+              <div class="col-2">
+                <button class="btn btn-primary w-100" onclick="salvarLocalForm()">Salvar</button>
+              </div>
+            </div>
+          </div>
+        </div>
+        <table class="table table-hover mb-0">
+          <thead><tr><th>Nome</th><th>Endereço</th><th></th></tr></thead>
+          <tbody id="tabela-locais"></tbody>
+        </table>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" data-bs-dismiss="modal">Fechar</button>
       </div>
     </div>
   </div>
@@ -2071,7 +2119,7 @@ function renderCardJogo(j) {
           <span class="badge ${statusColor} me-2 mb-1"><i class="bi ${statusIcon} me-1"></i>${se}</span>
           ${j.valor && totalParticipantes > 0 ? `<span class="badge bg-light text-success border border-success me-2 mb-1"><i class="bi bi-cash me-1"></i>R$ ${(j.valor/totalParticipantes).toFixed(2).replace('.',',')}/pessoa <span class="opacity-75">· total R$ ${Number(j.valor).toFixed(2).replace('.',',')}</span></span>` : j.valor ? `<span class="badge bg-light text-success border border-success me-2 mb-1"><i class="bi bi-cash me-1"></i>Total R$ ${Number(j.valor).toFixed(2).replace('.',',')}</span>` : ''}
           ${j.observacao ? `<small class="text-muted">${j.observacao}</small>` : ''}
-          ${j.endereco ? `<div class="mt-1"><a href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(j.endereco)}" target="_blank" class="small text-decoration-none"><i class="bi bi-geo-alt-fill text-danger me-1"></i>${j.endereco}</a></div>` : ''}
+          ${j.local_nome || j.endereco ? `<div class="mt-1"><i class="bi bi-geo-alt-fill text-danger me-1"></i>${j.local_nome ? `<strong>${j.local_nome}</strong>` : ''}${j.local_nome && j.endereco ? ' — ' : ''}${j.endereco ? `<a href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(j.endereco)}" target="_blank" class="small text-decoration-none">${j.endereco}</a>` : ''}</div>` : ''}
         </div>
         <div class="d-flex align-items-center gap-2 flex-wrap">
           <span class="badge bg-secondary">${totalParticipantes} jogadores</span>
@@ -2158,12 +2206,15 @@ function abrirModalJogo() {
   document.getElementById('jogo-categoria').value = '';
   document.getElementById('jogo-status').value = 'Planejado';
   document.getElementById('jogo-obs').value = '';
+  document.getElementById('jogo-local-nome').value = '';
   document.getElementById('jogo-endereco').value = '';
+  document.getElementById('jogo-local-select').value = '';
   document.getElementById('jogo-valor').value = '';
   document.getElementById('jogo-valor-wrap').style.display = 'none';
   document.getElementById('modalJogoTitulo').textContent = 'Novo jogo';
   _jogoNParticipantes = mensalistasAtivos.length;
   atualizarValorCabeca();
+  carregarLocaisSelect();
   new bootstrap.Modal('#modalJogo').show();
 }
 
@@ -2175,13 +2226,16 @@ function editarJogo(id) {
   document.getElementById('jogo-categoria').value = j.categoria || '';
   document.getElementById('jogo-status').value = j.status || 'Planejado';
   document.getElementById('jogo-obs').value = j.observacao || '';
+  document.getElementById('jogo-local-nome').value = j.local_nome || '';
   document.getElementById('jogo-endereco').value = j.endereco || '';
+  document.getElementById('jogo-local-select').value = '';
   document.getElementById('jogo-valor').value = j.valor || '';
   const ausentes = j.mensalistas_ausentes || [];
   const mensPresentes = mensalistasAtivos.filter(m => !ausentes.includes(m.id)).length;
   _jogoNParticipantes = mensPresentes + (j.avulsos || []).length;
   jogoCategoriaMudou();
   document.getElementById('modalJogoTitulo').textContent = 'Editar jogo';
+  carregarLocaisSelect();
   new bootstrap.Modal('#modalJogo').show();
 }
 
@@ -2241,10 +2295,13 @@ async function salvarJogo() {
   if (precisaValor && status === 'Confirmado' && !valorStr) {
     toast('Informe o valor total para confirmar um evento', 'warning'); return;
   }
+  const localNome = document.getElementById('jogo-local-nome').value.trim() || null;
+  const endereco  = document.getElementById('jogo-endereco').value.trim() || null;
   const payload = {
     data, categoria: cat, status,
     observacao: document.getElementById('jogo-obs').value || null,
-    endereco: document.getElementById('jogo-endereco').value.trim() || null,
+    local_nome: localNome,
+    endereco: endereco,
     valor: valorStr ? parseFloat(valorStr) : null,
   };
   try {
@@ -2254,6 +2311,10 @@ async function salvarJogo() {
     } else {
       await api('POST', '/api/jogos', payload);
       toast('Jogo registrado!');
+    }
+    // Salva o local automaticamente para uso futuro
+    if (localNome) {
+      try { await api('POST', '/api/locais', {nome: localNome, endereco}); } catch(_) {}
     }
     bootstrap.Modal.getInstance('#modalJogo').hide();
     carregarJogos();
@@ -2589,6 +2650,93 @@ async function deletarEntrada(id) {
     await api('DELETE', `/api/entradas/${id}`);
     toast('Entrada excluída');
     carregarEntradas();
+  } catch(e) { toast(e.message, 'danger'); }
+}
+
+// ── Locais ────────────────────────────────────────────────────────────────────
+let _locaisCached = [];
+
+async function carregarLocaisSelect() {
+  try {
+    _locaisCached = await api('GET', '/api/locais');
+    const sel = document.getElementById('jogo-local-select');
+    if (!sel) return;
+    const atual = sel.value;
+    sel.innerHTML = '<option value="">— Selecionar local salvo —</option>' +
+      _locaisCached.map(l => `<option value="${l.id}" data-nome="${l.nome}" data-end="${l.endereco||''}">${l.nome}</option>`).join('');
+    sel.value = atual;
+  } catch(_) {}
+}
+
+function selecionarLocal(id) {
+  if (!id) return;
+  const local = _locaisCached.find(l => l.id == id);
+  if (!local) return;
+  document.getElementById('jogo-local-nome').value = local.nome;
+  document.getElementById('jogo-endereco').value = local.endereco || '';
+  document.getElementById('jogo-local-select').value = '';
+}
+
+function abrirGerenciarLocais() {
+  carregarLocaisGerenciar();
+  new bootstrap.Modal('#modalLocais').show();
+}
+
+async function carregarLocaisGerenciar() {
+  try {
+    const locais = await api('GET', '/api/locais');
+    _locaisCached = locais;
+    const tbody = document.getElementById('tabela-locais');
+    if (locais.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="3" class="text-center text-muted py-3">Nenhum local cadastrado.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = locais.map(l => `
+      <tr>
+        <td class="fw-semibold">${l.nome}</td>
+        <td class="text-muted small">${l.endereco || '—'}</td>
+        <td class="text-end">
+          <button class="btn btn-sm btn-outline-secondary me-1" onclick="abrirEditarLocal(${l.id},'${l.nome.replace(/'/g,"\\'")}','${(l.endereco||'').replace(/'/g,"\\'")}')"><i class="bi bi-pencil"></i></button>
+          <button class="btn btn-sm btn-outline-danger" onclick="deletarLocal(${l.id})"><i class="bi bi-trash"></i></button>
+        </td>
+      </tr>`).join('');
+  } catch(e) { toast('Erro ao carregar locais', 'danger'); }
+}
+
+function abrirEditarLocal(id, nome, endereco) {
+  document.getElementById('local-edit-id').value = id || '';
+  document.getElementById('local-edit-nome').value = nome || '';
+  document.getElementById('local-edit-end').value = endereco || '';
+  document.getElementById('local-form-titulo').textContent = id ? 'Editar local' : 'Novo local';
+}
+
+async function salvarLocalForm() {
+  const id = document.getElementById('local-edit-id').value;
+  const nome = document.getElementById('local-edit-nome').value.trim();
+  const endereco = document.getElementById('local-edit-end').value.trim() || null;
+  if (!nome) { toast('Informe o nome do local', 'warning'); return; }
+  try {
+    if (id) {
+      await api('PUT', `/api/locais/${id}`, {nome, endereco});
+      toast('Local atualizado!');
+    } else {
+      await api('POST', '/api/locais', {nome, endereco});
+      toast('Local salvo!');
+    }
+    document.getElementById('local-edit-id').value = '';
+    document.getElementById('local-edit-nome').value = '';
+    document.getElementById('local-edit-end').value = '';
+    document.getElementById('local-form-titulo').textContent = 'Novo local';
+    carregarLocaisGerenciar();
+  } catch(e) { toast(e.message, 'danger'); }
+}
+
+async function deletarLocal(id) {
+  if (!confirm('Excluir este local?')) return;
+  try {
+    await api('DELETE', `/api/locais/${id}`);
+    toast('Local excluído');
+    carregarLocaisGerenciar();
   } catch(e) { toast(e.message, 'danger'); }
 }
 

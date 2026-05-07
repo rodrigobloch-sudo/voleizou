@@ -543,7 +543,15 @@ def _gerar_pendencias_jogo(db: Session, jogo: models.Jogo):
     presentes   = [m for m in mensalistas if m.id not in ausentes]
     avulsos     = [p.jogador for p in jogo.participacoes]
     participantes = presentes + avulsos
+    ids_participantes = {j.id for j in participantes}
     n = len(participantes)
+
+    # Remove pendências de quem não está mais no jogo (saiu depois da geração)
+    pendencias_existentes = db.query(models.Pendencia).filter_by(jogo_id=jogo.id).all()
+    for pend in pendencias_existentes:
+        if pend.jogador_id not in ids_participantes:
+            db.delete(pend)
+
     if n == 0:
         return
     valor_pessoa = round(jogo.valor / n, 2)
@@ -1512,8 +1520,8 @@ def atualizar_presencas(jogo_id: int, data: PresencasUpdate, request: Request, d
         raise HTTPException(404, "Jogo não encontrado")
     jogo.mensalistas_ausentes = ','.join(str(i) for i in data.ausentes_ids) if data.ausentes_ids else None
     db.flush()
-    # Recalcula pendências se o jogo já estiver confirmado (divisão do valor muda com presenças)
-    if jogo.status in ("Confirmado", "Realizado"):
+    # Recalcula pendências se o jogo já aconteceu (confirmado, realizado ou data no passado)
+    if jogo.status in ("Confirmado", "Realizado") or jogo.data < date.today():
         _gerar_pendencias_jogo(db, jogo)
     db.commit()
     return {"ok": True}

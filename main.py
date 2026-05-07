@@ -1825,12 +1825,22 @@ def info_pagamento_jogador(jogador_id: int, db: Session = Depends(get_db)):
 
     pendencias_abertas = []
 
+    MESES_PT = ["","Janeiro","Fevereiro","Março","Abril","Maio","Junho",
+                "Julho","Agosto","Setembro","Outubro","Novembro","Dezembro"]
+    DATA_INICIO_COBRANCA = date(2026, 5, 1)
+
     if j.tipo == "mensalista":
-        # Verifica últimos 3 meses
-        for delta in range(2, -1, -1):
+        # Verifica mês atual e anterior (mesmo critério do painel admin)
+        for delta in range(1, -1, -1):
             m = mes - delta
             y = ano
             if m <= 0: m += 12; y -= 1
+            # Não cobrar antes de maio/2026
+            if date(y, m, 1) < DATA_INICIO_COBRANCA:
+                continue
+            # Não cobrar meses antes da criação do jogador
+            if j.criado_em and date(y, m, 1) < j.criado_em.date().replace(day=1):
+                continue
             pags = db.query(models.Pagamento).filter(
                 models.Pagamento.jogador_id == j.id,
                 models.Pagamento.tipo == "mensalidade",
@@ -1840,8 +1850,6 @@ def info_pagamento_jogador(jogador_id: int, db: Session = Depends(get_db)):
             pago = sum(p.valor for p in pags if not (p.observacao or "").startswith("PENDENTE|"))
             falta = round(VALOR_MENSALIDADE - pago, 2)
             if falta > 0:
-                MESES_PT = ["","Janeiro","Fevereiro","Março","Abril","Maio","Junho",
-                            "Julho","Agosto","Setembro","Outubro","Novembro","Dezembro"]
                 pendencias_abertas.append({
                     "id": None, "tipo": "mensalidade",
                     "descricao": f"Mensalidade {MESES_PT[m]} {y}",
@@ -1986,10 +1994,13 @@ def _pendencias_jogador(jogador_id: int, db: Session, cfg: dict) -> list:
     if not j:
         return []
     itens = []
+    DATA_INICIO_COBRANCA = date(2026, 5, 1)
     if j.tipo == "mensalista":
-        for delta in range(2, -1, -1):
+        for delta in range(1, -1, -1):
             m = mes - delta; y = ano
             if m <= 0: m += 12; y -= 1
+            if date(y, m, 1) < DATA_INICIO_COBRANCA:
+                continue
             if j.criado_em and date(y, m, 1) < j.criado_em.date().replace(day=1):
                 continue
             pags = db.query(models.Pagamento).filter(

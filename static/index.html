@@ -1615,16 +1615,17 @@ function renderCalendario(mes, ano, jogos) {
     const eventos = jogosPorDia[dia] || [];
     const isHoje = dia === diaHoje;
     const cor = eventos.length > 0 ? catEventColor(eventos[0].categoria) : null;
+    const isRealizado = eventos.length > 0 && eventos.every(j => (j.status_efetivo || j.status) === 'Realizado');
     const title = eventos.map(j => `${j.categoria || 'Jogo'}${j.observacao ? ' · ' + j.observacao : ''}`).join(' | ');
 
     html += `<div class="text-center rounded" style="
       min-height:34px;padding:3px 1px;
       ${isHoje ? 'background:#dbeafe;font-weight:700;' : ''}
-      ${cor ? `background:${cor}18;border:1px solid ${cor}50;` : ''}
+      ${isRealizado ? 'background:rgba(100,116,139,0.1);border:1px solid #94a3b850;opacity:0.75;' : cor ? `background:${cor}18;border:1px solid ${cor}50;` : ''}
     " ${title ? `title="${title}"` : ''}>
-      <span style="font-size:0.8rem;${cor ? `color:${cor};font-weight:700` : ''}">${dia}</span>
+      <span style="font-size:0.8rem;${isRealizado ? 'color:#94a3b8;font-weight:700' : cor ? `color:${cor};font-weight:700` : ''}">${dia}</span>
       <div style="display:flex;justify-content:center;gap:2px;margin-top:1px">
-        ${eventos.map(j => `<span style="width:5px;height:5px;border-radius:50%;background:${catEventColor(j.categoria)};display:inline-block"></span>`).join('')}
+        ${eventos.map(j => `<span style="width:5px;height:5px;border-radius:50%;background:${isRealizado ? '#94a3b8' : catEventColor(j.categoria)};display:inline-block"></span>`).join('')}
       </div>
     </div>`;
   }
@@ -1727,20 +1728,36 @@ function renderCalendarioCompleto(mes, ano, jogos) {
     const isSel    = dia === calDiaSelecionado;
     const temEvento = eventos.length > 0;
     const cor      = temEvento ? catEventColor(eventos[0].categoria) : null;
+    const isRealizado = temEvento && eventos.every(j => (j.status_efetivo || j.status) === 'Realizado');
     const label    = eventos.length === 1
       ? (eventos[0].categoria || 'Jogo Semanal')
       : eventos.length > 1 ? `${eventos.length} eventos` : '';
 
+    const bgColor = isSel
+      ? (cor || '#2563eb') + '20'
+      : isRealizado
+        ? 'rgba(100,116,139,0.12)'
+        : isHoje
+          ? '#dbeafe'
+          : temEvento ? cor + '10' : '#f8fafc';
+    const borderColor = isSel
+      ? (cor || '#2563eb')
+      : isRealizado
+        ? '#94a3b880'
+        : temEvento ? cor + '60' : '#e2e8f0';
+    const textColor = isRealizado ? '#94a3b8' : temEvento ? cor : isHoje ? '#1d4ed8' : '#64748b';
+
     grid += `<div onclick="selecionarDiaCalendario(${dia})" style="
         min-height:64px;padding:6px 4px;border-radius:8px;cursor:${temEvento ? 'pointer' : 'default'};
-        border:2px solid ${isSel ? (cor || '#2563eb') : temEvento ? cor + '60' : '#e2e8f0'};
-        background:${isSel ? (cor || '#2563eb') + '20' : isHoje ? '#dbeafe' : temEvento ? cor + '10' : '#f8fafc'};
+        border:2px solid ${borderColor};
+        background:${bgColor};
         transition:all .15s;
+        ${isRealizado ? 'opacity:0.7;' : ''}
       ">
-      <div style="font-size:.85rem;font-weight:${isHoje || temEvento ? '700' : '400'};color:${temEvento ? cor : isHoje ? '#1d4ed8' : '#64748b'}">
+      <div style="font-size:.85rem;font-weight:${isHoje || temEvento ? '700' : '400'};color:${textColor}">
         ${dia}${isHoje ? ' ·' : ''}
       </div>
-      ${label ? `<div style="font-size:.62rem;line-height:1.2;color:${cor};margin-top:2px;font-weight:600;overflow:hidden">${label}</div>` : ''}
+      ${label ? `<div style="font-size:.62rem;line-height:1.2;color:${textColor};margin-top:2px;font-weight:600;overflow:hidden">${label}${isRealizado ? ' ✓' : ''}</div>` : ''}
     </div>`;
   }
   grid += `</div>`;
@@ -2471,7 +2488,7 @@ async function carregarPagamentos() {
       <tr>
         <td class="ps-3">${fmtDate(p.data_pagamento)}</td>
         <td>${p.jogador_nome}</td>
-        <td><span class="badge ${p.tipo === 'mensalidade' ? 'badge-mensalista' : 'badge-avulso'}">${p.tipo}</span></td>
+        <td>${p.descricao_tipo || p.tipo}</td>
         <td>${p.referencia || '—'}</td>
         <td class="fw-bold text-success">${fmt(p.valor)}</td>
         <td>${p.observacao || '—'}</td>
@@ -3025,8 +3042,7 @@ async function carregarPendentes() {
           <div class="d-flex justify-content-between align-items-start">
             <div>
               <h6 class="fw-bold mb-1">${p.jogador_nome}</h6>
-              <span class="badge ${p.tipo === 'mensalidade' ? 'badge-mensalista' : 'badge-avulso'} me-2">${p.tipo}</span>
-              <small class="text-muted">${p.referencia}</small>
+              <span class="text-muted me-2">${p.descricao_tipo || p.tipo}</span>
             </div>
             <strong class="text-success fs-5">${fmt(p.valor)}</strong>
           </div>
@@ -3808,8 +3824,10 @@ async function iniciarApp(perms, tipo, jogadorId, publicUrl) {
   navegarPara(podeAcessar ? paginaInicial : 'dashboard');
 
   carregarIP();
-  carregarPendentes();
-  setInterval(() => carregarPendentes(), 30000);
+  if (tipoUsuarioLogado === 'admin') {
+    carregarPendentes();
+    setInterval(() => carregarPendentes(), 30000);
+  }
 
   // Revela o conteúdo agora que permissões já foram aplicadas
   document.getElementById('main').style.visibility = '';

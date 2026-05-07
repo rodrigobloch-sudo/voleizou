@@ -1595,6 +1595,22 @@ def listar_pagamentos(
     if ano:
         q = q.filter(extract("year", models.Pagamento.data_pagamento) == ano)
     pagamentos = q.order_by(models.Pagamento.data_pagamento.desc()).all()
+
+    def _descricao_tipo(p):
+        import re as _re
+        if _pagamento_e_mensalidade(p):
+            ref = p.referencia or ""
+            return f"Mensalidade {ref}".strip()
+        obs = p.observacao or ""
+        m = _re.search(r'pendencias_ids:([\d,]+)', obs)
+        if m:
+            ids = [int(x) for x in m.group(1).split(',') if x.strip().isdigit()]
+            if ids:
+                pend = db.query(models.Pendencia).filter(models.Pendencia.id.in_(ids)).first()
+                if pend:
+                    return pend.descricao
+        return p.referencia or "Avulso"
+
     return [
         {
             "id": p.id,
@@ -1604,6 +1620,7 @@ def listar_pagamentos(
             "data_pagamento": p.data_pagamento.isoformat(),
             "referencia": p.referencia,
             "tipo": p.tipo,
+            "descricao_tipo": _descricao_tipo(p),
             "observacao": p.observacao,
         }
         for p in pagamentos
@@ -1619,6 +1636,19 @@ def criar_pagamento(data: PagamentoCreate, request: Request, db: Session = Depen
         raise HTTPException(404, "Jogador não encontrado")
     p = models.Pagamento(**data.model_dump())
     db.add(p)
+    db.flush()
+
+    # Pagamento avulso registrado internamente → quitar pendências de evento em aberto do jogador
+    if data.tipo == "avulso":
+        pendencias_evento = db.query(models.Pendencia).filter(
+            models.Pendencia.jogador_id == data.jogador_id,
+            models.Pendencia.tipo == "evento",
+            models.Pendencia.quitado == False,
+        ).all()
+        for pend in pendencias_evento:
+            pend.quitado = True
+            pend.quitado_em = datetime.utcnow()
+
     db.commit()
     db.refresh(p)
     return {"id": p.id, "jogador_nome": jogador.nome, "valor": p.valor, "data_pagamento": p.data_pagamento.isoformat()}
@@ -1900,7 +1930,7 @@ def dashboard(mes: Optional[int] = None, ano: Optional[int] = None, db: Session 
         "mes_nome": f"{MESES_PT[mes]} {ano}",
         "mensalistas_lista": mensalistas_lista,
         "avulsos_resumo": avulsos_resumo,
-        "jogos_mes": [{"id": j.id, "data": j.data.isoformat(), "categoria": j.categoria, "observacao": j.observacao, "valor": j.valor} for j in todos_jogos_mes],
+        "jogos_mes": [{"id": j.id, "data": j.data.isoformat(), "categoria": j.categoria, "observacao": j.observacao, "valor": j.valor, "status": j.status or "Planejado", "status_efetivo": _status_efetivo(j.data, j.status)} for j in todos_jogos_mes],
         "aniversariantes": aniversariantes,
         "presencas_mes": presencas_mes,
         "total_jogos_passados": total_jogos_passados,

@@ -251,10 +251,16 @@ async function enviarComprovante() {
 
   try {
     const formData = new FormData();
+    // Verifica se mensalidade está selecionada (id == null)
+    const temMensalidade = pendenciasData.some((p, i) => {
+      const cb = document.getElementById(`pend-${i}`);
+      return cb && cb.checked && p.id == null;
+    });
     formData.append('file', arquivoSelecionadoFile);
     formData.append('jogador_id', jogadorId);
     formData.append('valor', valor);
     formData.append('pendencias_ids', getSelecionados().join(','));
+    formData.append('inclui_mensalidade', temMensalidade ? '1' : '0');
 
     const res = await fetch('/api/comprovante/enviar', { method: 'POST', body: formData });
     if (!res.ok) throw new Error('Erro ao enviar');

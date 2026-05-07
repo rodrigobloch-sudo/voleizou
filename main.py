@@ -1890,7 +1890,8 @@ async def enviar_comprovante_jogador(
     nome_comprovante: str = Form(default=""),
     valor: str = Form(default=""),
     data_iso: str = Form(default=""),
-    pendencias_ids: str = Form(default=""),   # IDs separados por vírgula
+    pendencias_ids: str = Form(default=""),      # IDs de pendências de evento
+    inclui_mensalidade: str = Form(default="0"), # "1" se mensalidade está no pagamento
     db: Session = Depends(get_db)
 ):
     """Recebe comprovante enviado pelo jogador e cria pendência para aprovação."""
@@ -1932,21 +1933,66 @@ async def enviar_comprovante_jogador(
     db.add(arquivo)
     db.flush()  # gera o arquivo.id sem fechar a transação
 
-    # Cria pagamento pendente
+    # Determina o que está sendo pago
     hoje = date.today()
     MESES_PT = ["","Janeiro","Fevereiro","Março","Abril","Maio","Junho",
                 "Julho","Agosto","Setembro","Outubro","Novembro","Dezembro"]
-    referencia = f"{MESES_PT[hoje.month]} {hoje.year}" if j.tipo == "mensalista" else str(date.today())
+    data_pag = data_pagamento or date.today()
+    ids_evento = [int(x) for x in pendencias_ids.split(",") if x.strip().isdigit()]
+    tem_mensalidade = inclui_mensalidade == "1"
+    tem_eventos = bool(ids_evento)
 
-    p = models.Pagamento(
-        jogador_id=jogador_id,
-        valor=valor_float or 0,
-        data_pagamento=data_pagamento or date.today(),
-        referencia=referencia,
-        tipo=j.tipo if j.tipo == "avulso" else "mensalidade",
-        observacao=f"PENDENTE|comprovante_id:{arquivo.id}|nome:{nome_comprovante}|pendencias_ids:{pendencias_ids}",
-    )
-    db.add(p)
+    if tem_eventos and tem_mensalidade:
+        # Pagamento misto: calcula quanto é de evento e quanto é de mensalidade
+        pends_evento = db.query(models.Pendencia).filter(
+            models.Pendencia.id.in_(ids_evento),
+            models.Pendencia.jogador_id == jogador_id,
+        ).all()
+        valor_eventos = round(sum(p.valor for p in pends_evento), 2)
+        valor_mensalidade = round((valor_float or 0) - valor_eventos, 2)
+
+        obs_base = f"comprovante_id:{arquivo.id}|nome:{nome_comprovante}"
+        # Registro de mensalidade
+        if valor_mensalidade > 0:
+            db.add(models.Pagamento(
+                jogador_id=jogador_id,
+                valor=valor_mensalidade,
+                data_pagamento=data_pag,
+                referencia=f"{MESES_PT[hoje.month]} {hoje.year}",
+                tipo="mensalidade",
+                observacao=f"PENDENTE|{obs_base}|pendencias_ids:",
+            ))
+        # Registro de eventos
+        db.add(models.Pagamento(
+            jogador_id=jogador_id,
+            valor=valor_eventos,
+            data_pagamento=data_pag,
+            referencia=str(hoje),
+            tipo="avulso",
+            observacao=f"PENDENTE|{obs_base}|pendencias_ids:{pendencias_ids}",
+        ))
+    elif tem_eventos:
+        # Apenas eventos
+        db.add(models.Pagamento(
+            jogador_id=jogador_id,
+            valor=valor_float or 0,
+            data_pagamento=data_pag,
+            referencia=str(hoje),
+            tipo="avulso",
+            observacao=f"PENDENTE|comprovante_id:{arquivo.id}|nome:{nome_comprovante}|pendencias_ids:{pendencias_ids}",
+        ))
+    else:
+        # Apenas mensalidade (ou avulso sem pendências específicas)
+        referencia = f"{MESES_PT[hoje.month]} {hoje.year}" if j.tipo == "mensalista" else str(hoje)
+        db.add(models.Pagamento(
+            jogador_id=jogador_id,
+            valor=valor_float or 0,
+            data_pagamento=data_pag,
+            referencia=referencia,
+            tipo="mensalidade" if j.tipo == "mensalista" else "avulso",
+            observacao=f"PENDENTE|comprovante_id:{arquivo.id}|nome:{nome_comprovante}|pendencias_ids:",
+        ))
+
     db.commit()
     return {"ok": True}
 

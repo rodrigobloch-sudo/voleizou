@@ -252,6 +252,85 @@ def _reset_admin_pass():
 
 _reset_admin_pass()
 
+def _corrigir_tipo_jogadores_admin():
+    """Vincula admins sem jogador_id a jogadores pelo nome, e corrige tipo='admin' para 'mensalista'."""
+    db = SessionLocal()
+    try:
+        admins = db.query(models.Usuario).filter(models.Usuario.tipo == "admin").all()
+        for u in admins:
+            # Auto-vínculo por nome exato (se ainda não vinculado)
+            if not u.jogador_id:
+                j = db.query(models.Jogador).filter(models.Jogador.nome == u.nome).first()
+                if j:
+                    u.jogador_id = j.id
+                    print(f"[INIT] Admin '{u.usuario}' vinculado automaticamente ao jogador '{j.nome}'.")
+            # Corrige tipo do jogador vinculado
+            if u.jogador_id:
+                j = db.query(models.Jogador).filter(models.Jogador.id == u.jogador_id).first()
+                if j and j.tipo not in ("mensalista", "avulso"):
+                    j.tipo = "mensalista"
+                    print(f"[INIT] Jogador '{j.nome}' corrigido para mensalista.")
+        db.commit()
+    except Exception as e:
+        print(f"[INIT] Erro ao corrigir tipos: {e}")
+    finally:
+        db.close()
+
+_corrigir_tipo_jogadores_admin()
+
+def _corrigir_usernames():
+    """Renomeia usuários cujo username não segue o padrão nome.sobrenome."""
+    import unicodedata
+    def _normalizar(s: str) -> str:
+        s = unicodedata.normalize("NFD", s)
+        s = "".join(c for c in s if unicodedata.category(c) != "Mn")
+        return re.sub(r'[^a-z0-9]', '', s.lower())
+
+    db = SessionLocal()
+    try:
+        usuarios = db.query(models.Usuario).all()
+        for u in usuarios:
+            if not u.nome or u.usuario == ADMIN_USER:
+                continue
+            partes = u.nome.strip().split()
+            primeiro = _normalizar(partes[0])
+            ultimo   = _normalizar(partes[-1]) if len(partes) > 1 else ""
+            esperado = f"{primeiro}.{ultimo}" if ultimo and ultimo != primeiro else primeiro
+            if not esperado:
+                continue
+            # Só corrige se o username atual NÃO começa com o padrão esperado
+            if not u.usuario.startswith(esperado.split('.')[0] + '.') and u.usuario != esperado:
+                # Gera username único
+                candidato, i = esperado, 2
+                while db.query(models.Usuario).filter(
+                    models.Usuario.usuario == candidato,
+                    models.Usuario.id != u.id
+                ).first():
+                    candidato = f"{esperado}{i}"; i += 1
+                print(f"[INIT] Username '{u.usuario}' → '{candidato}'")
+                u.usuario = candidato
+        db.commit()
+    except Exception as e:
+        print(f"[INIT] Erro ao corrigir usernames: {e}")
+        db.rollback()
+    finally:
+        db.close()
+
+_corrigir_usernames()
+
+def _seed_pendencias_eventos():
+    """Na inicialização, gera pendências faltantes para jogos confirmados/realizados não-semanais."""
+    db = SessionLocal()
+    try:
+        _regenerar_pendencias_todos_eventos(db)
+        print("[INIT] Pendências de eventos verificadas/geradas.")
+    except Exception as e:
+        print(f"[INIT] Erro ao gerar pendências: {e}")
+    finally:
+        db.close()
+
+_seed_pendencias_eventos()
+
 def _get_config(db: Session) -> dict:
     """Retorna dict com os valores de configuração convertidos para float."""
     rows = db.query(models.Configuracao).all()
@@ -330,9 +409,23 @@ def _verificar_token_reset(token: str) -> int | None:
     except Exception:
         return None
 
-def _gerar_usuario(email: str, db: Session) -> str:
-    """Gera username único a partir do email."""
-    base = re.sub(r'[^a-z0-9._-]', '', email.split("@")[0].lower()) or "jogador"
+def _gerar_usuario(email: str, db: Session, nome: str = "") -> str:
+    """Gera username no formato nome.sobrenome a partir do nome completo."""
+    import unicodedata
+    def _normalizar(s: str) -> str:
+        s = unicodedata.normalize("NFD", s)
+        s = "".join(c for c in s if unicodedata.category(c) != "Mn")
+        return re.sub(r'[^a-z0-9]', '', s.lower())
+
+    if nome and nome.strip():
+        partes = nome.strip().split()
+        primeiro = _normalizar(partes[0])
+        ultimo   = _normalizar(partes[-1]) if len(partes) > 1 else ""
+        base = f"{primeiro}.{ultimo}" if ultimo and ultimo != primeiro else primeiro
+    else:
+        base = re.sub(r'[^a-z0-9._-]', '', email.split("@")[0].lower()) or "jogador"
+
+    base = base or "jogador"
     username, i = base, 2
     while db.query(models.Usuario).filter_by(usuario=username).first():
         username = f"{base}{i}"; i += 1
@@ -391,13 +484,19 @@ def _status_efetivo(data_jogo, status_raw: str | None) -> str:
     return s
 
 def _gerar_pendencias_jogo(db: Session, jogo: models.Jogo):
-    """Cria Pendencia para cada participante de um jogo confirmado não-semanal com valor."""
+    """Cria/atualiza Pendencia para cada participante de um jogo não-semanal com valor."""
     cat = (jogo.categoria or "").strip()
-    if not jogo.valor or cat == "Jogo Semanal" or not cat:
+    # Jogo Semanal não gera pendências individuais (coberto pela mensalidade)
+    if not jogo.valor or cat == "Jogo Semanal":
         return
     ausentes = [int(x) for x in (jogo.mensalistas_ausentes or "").split(",") if x.strip()]
+    from sqlalchemy import or_ as _or2
+    admin_ids = {row[0] for row in db.query(models.Usuario.jogador_id).filter(
+        models.Usuario.tipo == "admin", models.Usuario.jogador_id.isnot(None)
+    ).all()}
     mensalistas = db.query(models.Jogador).filter(
-        models.Jogador.tipo == "mensalista", models.Jogador.ativo == True
+        _or2(models.Jogador.tipo == "mensalista", models.Jogador.id.in_(admin_ids)),
+        models.Jogador.ativo == True
     ).all()
     presentes   = [m for m in mensalistas if m.id not in ausentes]
     avulsos     = [p.jogador for p in jogo.participacoes]
@@ -406,15 +505,17 @@ def _gerar_pendencias_jogo(db: Session, jogo: models.Jogo):
     if n == 0:
         return
     valor_pessoa = round(jogo.valor / n, 2)
+    descricao = f"{cat or 'Evento'} — {jogo.data.strftime('%d/%m/%Y')}"
     from sqlalchemy.exc import IntegrityError
     for j in participantes:
         existe = db.query(models.Pendencia).filter_by(jogador_id=j.id, jogo_id=jogo.id).first()
         if existe:
             existe.valor = valor_pessoa   # atualiza se participantes mudaram
+            existe.descricao = descricao
             continue
         p = models.Pendencia(
             jogador_id=j.id, jogo_id=jogo.id, tipo="evento",
-            descricao=f"{cat} — {jogo.data.strftime('%d/%m/%Y')}",
+            descricao=descricao,
             valor=valor_pessoa,
             referencia=jogo.data.isoformat(),
         )
@@ -423,6 +524,21 @@ def _gerar_pendencias_jogo(db: Session, jogo: models.Jogo):
         db.flush()
     except IntegrityError:
         db.rollback()
+
+
+def _regenerar_pendencias_todos_eventos(db: Session):
+    """Retroativamente gera pendências para jogos confirmados/realizados que ainda não as têm."""
+    jogos = db.query(models.Jogo).filter(
+        models.Jogo.status.in_(["Confirmado", "Realizado"]),
+        models.Jogo.valor.isnot(None),
+        models.Jogo.valor > 0,
+    ).all()
+    for jogo in jogos:
+        cat = (jogo.categoria or "").strip()
+        if cat == "Jogo Semanal":
+            continue
+        _gerar_pendencias_jogo(db, jogo)
+    db.commit()
 
 def _usuario_da_sessao(request: Request, db: Session) -> models.Usuario | None:
     token = request.cookies.get("volei_sessao", "")
@@ -481,8 +597,10 @@ def _migrar_participacoes_tipo(db: Session, jogador: models.Jogador, tipo_novo: 
 
     db.flush()
 
-    # Recalcula pendências de todos os jogos confirmados com valor
-    todos_confirmados = db.query(models.Jogo).filter(models.Jogo.status == "Confirmado").all()
+    # Recalcula pendências de todos os jogos confirmados/realizados com valor
+    todos_confirmados = db.query(models.Jogo).filter(
+        models.Jogo.status.in_(["Confirmado", "Realizado"])
+    ).all()
     for jogo in todos_confirmados:
         _gerar_pendencias_jogo(db, jogo)
 
@@ -563,11 +681,13 @@ def me(request: Request, db: Session = Depends(get_db)):
     tipo = (u.tipo or "admin") if u else "admin"
     perms = db.query(models.Permissao).filter(models.Permissao.tipo_usuario == tipo).all()
     jogador_id = u.jogador_id if u else None
+    public_url = os.getenv("PUBLIC_URL", "").rstrip("/")
     return {
         "ok": True,
         "tipo": tipo,
         "jogador_id": jogador_id,
         "permissoes": {p.menu_slug: p.permitido for p in perms},
+        "public_url": public_url or None,
     }
 
 
@@ -590,12 +710,44 @@ class PermissaoUpdate(BaseModel):
 
 @app.get("/api/usuarios")
 def listar_usuarios(db: Session = Depends(get_db)):
-    return [
-        {"id": u.id, "nome": u.nome, "usuario": u.usuario,
-         "tipo": u.tipo or "admin",
-         "criado_em": u.criado_em.isoformat() if u.criado_em else None}
-        for u in db.query(models.Usuario).order_by(models.Usuario.nome).all()
-    ]
+    result = []
+    for u in db.query(models.Usuario).order_by(models.Usuario.nome).all():
+        jogador_nome = None
+        if u.jogador_id:
+            j = db.query(models.Jogador).filter(models.Jogador.id == u.jogador_id).first()
+            jogador_nome = j.nome if j else None
+        result.append({
+            "id": u.id, "nome": u.nome, "usuario": u.usuario,
+            "tipo": u.tipo or "admin",
+            "jogador_id": u.jogador_id,
+            "jogador_nome": jogador_nome,
+            "criado_em": u.criado_em.isoformat() if u.criado_em else None,
+        })
+    return result
+
+class VincularJogadorData(BaseModel):
+    jogador_id: Optional[int] = None
+
+@app.put("/api/usuarios/{usuario_id}/jogador")
+def vincular_jogador(usuario_id: int, data: VincularJogadorData, request: Request, db: Session = Depends(get_db)):
+    """Vincula (ou desvincula) um usuário a um jogador."""
+    _exigir_admin(request, db)
+    u = db.query(models.Usuario).filter(models.Usuario.id == usuario_id).first()
+    if not u:
+        raise HTTPException(404, "Usuário não encontrado")
+    if data.jogador_id:
+        j = db.query(models.Jogador).filter(models.Jogador.id == data.jogador_id).first()
+        if not j:
+            raise HTTPException(404, "Jogador não encontrado")
+        u.jogador_id = data.jogador_id
+        # Garante que o tipo do jogador está correto
+        tipo_jogador = "mensalista" if (u.tipo or "admin") == "admin" else (u.tipo or "mensalista")
+        if j.tipo != tipo_jogador:
+            j.tipo = tipo_jogador
+    else:
+        u.jogador_id = None
+    db.commit()
+    return {"ok": True}
 
 @app.post("/api/usuarios", status_code=201)
 def criar_usuario(data: UsuarioCreate, db: Session = Depends(get_db)):
@@ -643,12 +795,17 @@ def alterar_tipo(usuario_id: int, data: TipoUpdate, db: Session = Depends(get_db
         raise HTTPException(404, "Usuário não encontrado")
     tipo_anterior = u.tipo
     u.tipo = data.tipo
+    # Admins são tratados como mensalistas no contexto de jogador
+    tipo_jogador = "mensalista" if data.tipo == "admin" else data.tipo
+    tipo_jogador_anterior = "mensalista" if (tipo_anterior or "admin") == "admin" else tipo_anterior
     # Sincroniza o Jogador vinculado e ajusta participações em jogos
     if u.jogador_id:
         j = db.query(models.Jogador).filter(models.Jogador.id == u.jogador_id).first()
-        if j and tipo_anterior != data.tipo:
-            j.tipo = data.tipo
-            _migrar_participacoes_tipo(db, j, data.tipo)
+        if j and tipo_jogador_anterior != tipo_jogador:
+            j.tipo = tipo_jogador
+            _migrar_participacoes_tipo(db, j, tipo_jogador)
+        elif j:
+            j.tipo = tipo_jogador  # corrige caso esteja "admin"
     db.commit()
     return {"ok": True}
 
@@ -789,8 +946,15 @@ class SaidaCreate(BaseModel):
 
 @app.get("/api/jogadores")
 def listar_jogadores(tipo: Optional[str] = None, db: Session = Depends(get_db)):
+    from sqlalchemy import or_ as _or
     q = db.query(models.Jogador)
-    if tipo:
+    if tipo == "mensalista":
+        # Admins são tratados como mensalistas: inclui jogadores vinculados a admins
+        admin_ids = {row[0] for row in db.query(models.Usuario.jogador_id).filter(
+            models.Usuario.tipo == "admin", models.Usuario.jogador_id.isnot(None)
+        ).all()}
+        q = q.filter(_or(models.Jogador.tipo == "mensalista", models.Jogador.id.in_(admin_ids)))
+    elif tipo:
         q = q.filter(models.Jogador.tipo == tipo)
     jogadores = q.order_by(models.Jogador.nome).all()
     return [
@@ -1001,7 +1165,7 @@ def aprovar_cadastro(sol_id: int, request: Request, db: Session = Depends(get_db
     db.add(j)
     db.flush()
 
-    username = _gerar_usuario(sol.email, db)
+    username = _gerar_usuario(sol.email, db, sol.nome)
     senha_temp = bcrypt.hashpw(os.urandom(32).hex().encode(), bcrypt.gensalt()).decode()
     u = models.Usuario(nome=sol.nome, usuario=username,
                        senha_hash=senha_temp, tipo=sol.tipo, jogador_id=j.id)
@@ -1180,7 +1344,7 @@ def criar_jogo(data: JogoCreate, request: Request, db: Session = Depends(get_db)
     jogo = models.Jogo(**data.model_dump())
     db.add(jogo)
     db.flush()
-    if (jogo.status == "Confirmado"):
+    if jogo.status in ("Confirmado", "Realizado"):
         _gerar_pendencias_jogo(db, jogo)
     db.commit()
     db.refresh(jogo)
@@ -1202,8 +1366,11 @@ def atualizar_jogo(jogo_id: int, data: JogoUpdate, request: Request, db: Session
     status_anterior = jogo.status or "Planejado"
     for field, value in data.model_dump(exclude_unset=True).items():
         setattr(jogo, field, value)
-    # Gera pendências ao confirmar (apenas não-semanal com valor)
-    if jogo.status == "Confirmado" and status_anterior != "Confirmado":
+    # Gera pendências ao confirmar ou realizar (apenas não-semanal com valor)
+    if jogo.status in ("Confirmado", "Realizado") and status_anterior not in ("Confirmado", "Realizado"):
+        _gerar_pendencias_jogo(db, jogo)
+    elif jogo.status in ("Confirmado", "Realizado"):
+        # Atualiza valores se valor ou categoria mudou
         _gerar_pendencias_jogo(db, jogo)
     db.commit()
     return _jogo_dict(jogo)
@@ -1217,7 +1384,7 @@ def atualizar_presencas(jogo_id: int, data: PresencasUpdate, request: Request, d
     jogo.mensalistas_ausentes = ','.join(str(i) for i in data.ausentes_ids) if data.ausentes_ids else None
     db.flush()
     # Recalcula pendências se o jogo já estiver confirmado (divisão do valor muda com presenças)
-    if jogo.status == "Confirmado":
+    if jogo.status in ("Confirmado", "Realizado"):
         _gerar_pendencias_jogo(db, jogo)
     db.commit()
     return {"ok": True}
@@ -1252,7 +1419,7 @@ def adicionar_avulso(jogo_id: int, data: ParticipacaoCreate, request: Request, d
     p = models.ParticipacaoAvulso(jogo_id=jogo_id, jogador_id=data.jogador_id)
     db.add(p)
     db.flush()
-    if jogo.status == "Confirmado":
+    if jogo.status in ("Confirmado", "Realizado"):
         _gerar_pendencias_jogo(db, jogo)
     db.commit()
     return {"ok": True}
@@ -1268,7 +1435,7 @@ def remover_avulso(jogo_id: int, jogador_id: int, request: Request, db: Session 
         raise HTTPException(404, "Participação não encontrada")
     db.delete(p)
     db.flush()
-    if jogo.status == "Confirmado":
+    if jogo.status in ("Confirmado", "Realizado"):
         _gerar_pendencias_jogo(db, jogo)
     db.commit()
     return {"ok": True}
@@ -1382,9 +1549,13 @@ def dashboard(mes: Optional[int] = None, ano: Optional[int] = None, db: Session 
     MESES_PT = ["", "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
                 "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"]
 
-    # Mensalistas
+    # Mensalistas (admins são tratados como mensalistas)
+    from sqlalchemy import or_ as _or4
+    _dash_admin_ids = {row[0] for row in db.query(models.Usuario.jogador_id).filter(
+        models.Usuario.tipo == "admin", models.Usuario.jogador_id.isnot(None)
+    ).all()}
     mensalistas = db.query(models.Jogador).filter(
-        models.Jogador.tipo == "mensalista",
+        _or4(models.Jogador.tipo == "mensalista", models.Jogador.id.in_(_dash_admin_ids)),
         models.Jogador.ativo == True
     ).order_by(models.Jogador.nome).all()
 
@@ -1503,19 +1674,25 @@ def dashboard(mes: Optional[int] = None, ano: Optional[int] = None, db: Session 
         models.Jogador.ativo == True
     ).order_by(models.Jogador.nome).all()
 
+    # IDs de admins com jogador vinculado (tratados como mensalistas)
+    _dash_admin_jog_ids = {row[0] for row in db.query(models.Usuario.jogador_id).filter(
+        models.Usuario.tipo == "admin", models.Usuario.jogador_id.isnot(None)
+    ).all()}
+
     presencas_mes = []
     for jogador in todos_ativos:
+        eh_mensalista = jogador.tipo == 'mensalista' or jogador.id in _dash_admin_jog_ids
         count = 0
         for jogo in jogos_passados:
             ausentes_ids = [int(x) for x in (jogo.mensalistas_ausentes or '').split(',') if x.strip()]
-            if jogador.tipo == 'mensalista':
+            if eh_mensalista:
                 if jogador.id not in ausentes_ids:
                     count += 1
             else:
                 if any(p.jogador_id == jogador.id for p in jogo.participacoes):
                     count += 1
-        # Mensalistas: inclui sempre; avulsos: só se tiver ao menos 1 presença
-        if jogador.tipo == 'mensalista' or count > 0:
+        # Mensalistas (e admins): inclui sempre; avulsos: só se tiver ao menos 1 presença
+        if eh_mensalista or count > 0:
             presencas_mes.append({
                 "id": jogador.id,
                 "nome": jogador.nome,
@@ -1772,8 +1949,13 @@ def listar_pendencias(request: Request, db: Session = Depends(get_db)):
     MESES_PT = ["","Janeiro","Fevereiro","Março","Abril","Maio","Junho",
                 "Julho","Agosto","Setembro","Outubro","Novembro","Dezembro"]
 
+    from sqlalchemy import or_ as _or3
+    _admin_ids = {row[0] for row in db.query(models.Usuario.jogador_id).filter(
+        models.Usuario.tipo == "admin", models.Usuario.jogador_id.isnot(None)
+    ).all()}
     mensalistas = db.query(models.Jogador).filter(
-        models.Jogador.tipo == "mensalista", models.Jogador.ativo == True
+        _or3(models.Jogador.tipo == "mensalista", models.Jogador.id.in_(_admin_ids)),
+        models.Jogador.ativo == True
     ).order_by(models.Jogador.nome).all()
 
     todos_ativos = db.query(models.Jogador).filter(
@@ -1782,11 +1964,15 @@ def listar_pendencias(request: Request, db: Session = Depends(get_db)):
 
     result = {}
 
-    # Mensalidade: verifica últimos 3 meses para cada mensalista
+    # Mensalidade: verifica mês atual e anterior (mínimo maio/2026)
+    DATA_INICIO_COBRANCA = date(2026, 5, 1)
     for j in mensalistas:
-        for delta in range(2, -1, -1):
+        for delta in range(1, -1, -1):
             m = mes - delta; y = ano
             if m <= 0: m += 12; y -= 1
+            # Não cobrar antes de maio/2026
+            if date(y, m, 1) < DATA_INICIO_COBRANCA:
+                continue
             # Não cobrar meses antes da criação do jogador
             if j.criado_em and date(y, m, 1) < j.criado_em.date().replace(day=1):
                 continue
@@ -1829,6 +2015,24 @@ def listar_pendencias(request: Request, db: Session = Depends(get_db)):
     for entry in lista:
         entry["total"] = round(sum(i["valor"] for i in entry["itens"]), 2)
     return lista
+
+@app.delete("/api/pendencias/{pendencia_id}")
+def excluir_pendencia(pendencia_id: int, request: Request, db: Session = Depends(get_db)):
+    """Admin: remove uma pendência de evento."""
+    _exigir_admin(request, db)
+    p = db.query(models.Pendencia).filter(models.Pendencia.id == pendencia_id).first()
+    if not p:
+        raise HTTPException(404, "Pendência não encontrada")
+    db.delete(p)
+    db.commit()
+    return {"ok": True}
+
+@app.post("/api/pendencias/regenerar")
+def regenerar_pendencias(request: Request, db: Session = Depends(get_db)):
+    """Admin: regenera pendências de eventos para todos os jogos confirmados/realizados."""
+    _exigir_admin(request, db)
+    _regenerar_pendencias_todos_eventos(db)
+    return {"ok": True}
 
 @app.post("/api/pendentes/{pagamento_id}/aprovar")
 def aprovar_pendente(pagamento_id: int, db: Session = Depends(get_db)):

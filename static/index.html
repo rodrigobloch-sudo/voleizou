@@ -220,8 +220,8 @@
   </div>
 </div>
 
-<!-- Main -->
-<div id="main">
+<!-- Main (invisível até permissões aplicadas — evita flash de conteúdo admin) -->
+<div id="main" style="visibility:hidden">
 
   <!-- ── DASHBOARD ── -->
   <div id="page-dashboard" class="page active">
@@ -541,7 +541,7 @@
       <div class="table-responsive">
         <table class="table table-hover mb-0">
           <thead><tr>
-            <th>Nome</th><th>Usuário</th><th>Tipo</th><th>Criado em</th><th></th>
+            <th>Nome</th><th>Usuário</th><th>Tipo</th><th>Jogador vinculado</th><th>Criado em</th><th></th>
           </tr></thead>
           <tbody id="config-usuarios-tbody"></tbody>
         </table>
@@ -579,7 +579,10 @@
         <h5 class="fw-bold mb-0"><i class="bi bi-exclamation-circle me-2 text-danger"></i>Pendências Financeiras</h5>
         <p class="text-muted small mb-0">Jogadores com mensalidade ou eventos em aberto.</p>
       </div>
-      <button class="btn btn-outline-secondary btn-sm" onclick="carregarPendencias()"><i class="bi bi-arrow-clockwise"></i></button>
+      <div class="d-flex gap-2">
+        <button class="btn btn-outline-secondary btn-sm" onclick="carregarPendencias()"><i class="bi bi-arrow-clockwise"></i></button>
+        <button class="btn btn-outline-primary btn-sm" id="btn-regenerar-pendencias" onclick="regenerarPendencias()" title="Recalcular pendências de eventos"><i class="bi bi-lightning me-1"></i>Recalcular</button>
+      </div>
     </div>
     <div id="lista-pendencias"></div>
   </div>
@@ -759,6 +762,30 @@
       <div class="modal-footer">
         <button class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
         <button class="btn btn-primary" onclick="salvarJogo()">Salvar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal Duplicar Jogo -->
+<div class="modal fade" id="modalDuplicarJogo" tabindex="-1">
+  <div class="modal-dialog modal-sm">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="bi bi-copy me-2"></i>Duplicar evento</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <p class="text-muted small mb-3" id="duplicar-jogo-info"></p>
+        <label class="form-label">Nova data <span class="text-danger">*</span></label>
+        <input type="date" class="form-control" id="duplicar-jogo-data"
+               onkeydown="if(event.key==='Enter') confirmarDuplicarJogo()" />
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button class="btn btn-primary" onclick="confirmarDuplicarJogo()">
+          <i class="bi bi-copy me-1"></i>Duplicar
+        </button>
       </div>
     </div>
   </div>
@@ -974,6 +1001,28 @@
   </div>
 </div>
 
+<!-- Modal Vincular Jogador -->
+<div class="modal fade" id="modalVincularJogador" tabindex="-1">
+  <div class="modal-dialog modal-sm">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="bi bi-link-45deg me-2"></i>Vincular jogador</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <p class="text-muted small mb-2">Usuário: <strong id="vincular-usuario-nome"></strong></p>
+        <label class="form-label">Jogador vinculado</label>
+        <select class="form-select" id="vincular-jogador-select"></select>
+        <div class="form-text">Admins vinculados a um jogador entram automaticamente nos jogos como mensalistas.</div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button class="btn btn-primary" onclick="salvarVinculoJogador()">Salvar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- Modal Alterar Senha -->
 <div class="modal fade" id="modalAlterarSenha" tabindex="-1">
   <div class="modal-dialog">
@@ -1146,6 +1195,8 @@ function navegarPara(page) {
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
   const pageEl = document.getElementById('page-' + page);
   if (pageEl) pageEl.classList.add('active');
+  // Persiste a página atual para restaurar ao recarregar
+  try { localStorage.setItem('volei_pagina', page); } catch(e) {}
   if (page === 'dashboard')         carregarDashboard();
   if (page === 'jogadores')         carregarJogadores();
   if (page === 'jogos')             carregarJogos();
@@ -1918,6 +1969,9 @@ function renderCardJogo(j) {
           <button class="btn btn-sm btn-outline-secondary" onclick="editarJogo(${j.id})">
             <i class="bi bi-pencil"></i>
           </button>
+          <button class="btn btn-sm btn-outline-secondary" title="Duplicar evento" onclick="abrirDuplicarJogo(${j.id})">
+            <i class="bi bi-copy"></i>
+          </button>
           <button class="btn btn-sm btn-outline-danger" onclick="excluirJogo(${j.id}, '${fmtDate(j.data)}')">
             <i class="bi bi-trash"></i>
           </button>` : ''}
@@ -2016,6 +2070,51 @@ function editarJogo(id) {
   jogoCategoriaMudou();
   document.getElementById('modalJogoTitulo').textContent = 'Editar jogo';
   new bootstrap.Modal('#modalJogo').show();
+}
+
+let _duplicarJogoId = null;
+
+function abrirDuplicarJogo(id) {
+  const j = todosJogos.find(x => x.id === id);
+  if (!j) return;
+  _duplicarJogoId = id;
+  const cat = j.categoria || 'Jogo';
+  const dataFmt = fmtDate(j.data);
+  document.getElementById('duplicar-jogo-info').textContent =
+    `Duplicando: ${cat} de ${dataFmt}${j.observacao ? ' · ' + j.observacao : ''}`;
+  document.getElementById('duplicar-jogo-data').value = today();
+  new bootstrap.Modal('#modalDuplicarJogo').show();
+  setTimeout(() => document.getElementById('duplicar-jogo-data').focus(), 300);
+}
+
+async function confirmarDuplicarJogo() {
+  const novaData = document.getElementById('duplicar-jogo-data').value;
+  if (!novaData) { toast('Selecione uma data', 'warning'); return; }
+  const j = todosJogos.find(x => x.id === _duplicarJogoId);
+  if (!j) return;
+
+  const btn = document.querySelector('#modalDuplicarJogo .btn-primary');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Duplicando...';
+
+  try {
+    await api('POST', '/api/jogos', {
+      data: novaData,
+      categoria: j.categoria || null,
+      observacao: j.observacao || null,
+      valor: j.valor || null,
+      endereco: j.endereco || null,
+      status: 'Planejado',
+    });
+    bootstrap.Modal.getInstance(document.getElementById('modalDuplicarJogo')).hide();
+    toast('Evento duplicado com sucesso!');
+    await carregarJogos();
+  } catch(e) {
+    toast('Erro ao duplicar evento.', 'danger');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="bi bi-copy me-1"></i>Duplicar';
+  }
 }
 
 async function salvarJogo() {
@@ -2416,8 +2515,19 @@ async function salvarPagamentoComprovante() {
 }
 
 // ── IP local e WhatsApp ───────────────────────────────────────────────────────
-// Usa sempre a origem do próprio site — funciona local e em produção automaticamente
-const baseUrl = window.location.origin;
+// baseUrl é definido em iniciarApp() com o PUBLIC_URL do servidor (ou window.location.origin como fallback)
+let baseUrl = window.location.origin;
+
+function abrirUrl(url) {
+  // Mais confiável que window.open em browsers mobile
+  const a = document.createElement('a');
+  a.href = url;
+  a.target = '_blank';
+  a.rel = 'noopener noreferrer';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+}
 
 async function carregarIP() {
   document.getElementById('link-base').textContent = `${baseUrl}/pagar/ID`;
@@ -2436,11 +2546,6 @@ async function enviarWhatsApp(jogadorId, nomeJogador, telefone, tipo) {
   const agora = new Date();
   const mes = MESES[agora.getMonth() + 1];
   const ano = agora.getFullYear();
-  const volei = String.fromCodePoint(0x1F3D0);
-
-  // Abre a janela imediatamente (antes de qualquer await) para evitar bloqueio de popup
-  const janela = window.open('', '_blank');
-
   let msg;
   if (tipo === 'avulso') {
     let dataJogoFmt = `${String(agora.getDate()).padStart(2,'0')}/${String(agora.getMonth()+1).padStart(2,'0')}/${ano}`;
@@ -2451,16 +2556,17 @@ async function enviarWhatsApp(jogadorId, nomeJogador, telefone, tipo) {
         dataJogoFmt = `${diaJ}/${mesJ}/${anoJ}`;
       }
     } catch(e) {}
-    msg = `Olá ${nomeJogador}! \n\nAqui é da equipe do Voleizou! ${volei}${volei}${volei}${volei}\n\nSegue o link para enviar seu comprovante de pagamento referente ao jogo do dia *${dataJogoFmt}*:\n\n${link}\n\nObrigado!`;
+    msg = `Olá ${nomeJogador}!\n\nAqui é da equipe do Voleizou!\n\nSegue o link para enviar seu comprovante de pagamento referente ao jogo do dia *${dataJogoFmt}*:\n\n${link}\n\nObrigado!`;
   } else {
-    msg = `Olá ${nomeJogador}! \n\nAqui é da equipe do Voleizou! ${volei}${volei}${volei}${volei}\n\nSegue o link para enviar seu comprovante de pagamento referente a *${mes} ${ano}*:\n\n${link}\n\nObrigado!`;
+    msg = `Olá ${nomeJogador}!\n\nAqui é da equipe do Voleizou!\n\nSegue o link para enviar seu comprovante de pagamento referente a *${mes} ${ano}*:\n\n${link}\n\nObrigado!`;
   }
 
   const tel = telefone ? telefone.replace(/\D/g, '') : '';
+  const numero = tel.startsWith('55') ? tel : '55' + tel;
   const url = tel
-    ? `https://wa.me/55${tel}?text=${encodeURIComponent(msg)}`
+    ? `https://wa.me/${numero}?text=${encodeURIComponent(msg)}`
     : `https://wa.me/?text=${encodeURIComponent(msg)}`;
-  janela.location.href = url;
+  abrirUrl(url);
 }
 
 // ── Caixa Geral ───────────────────────────────────────────────────────────────
@@ -2852,12 +2958,12 @@ async function cobrancaEnviar() {
   if (!j) return;
   if (j.telefone) {
     const link  = linkPagamento(j.id);
-    const volei = String.fromCodePoint(0x1F3D0);
     const msg   = j.tipo === 'avulso'
-      ? `Olá ${j.nome}! \n\nAqui é da equipe do Voleizou! ${volei}${volei}${volei}${volei}\n\nSegue o link para enviar seu comprovante de pagamento referente ao jogo do dia *${j.ref}*:\n\n${link}\n\nObrigado!`
-      : `Olá ${j.nome}! \n\nAqui é da equipe do Voleizou! ${volei}${volei}${volei}${volei}\n\nSegue o link para enviar seu comprovante de pagamento referente a *${j.ref}*:\n\n${link}\n\nObrigado!`;
+      ? `Olá ${j.nome}!\n\nAqui é da equipe do Voleizou!\n\nSegue o link para enviar seu comprovante de pagamento referente ao jogo do dia *${j.ref}*:\n\n${link}\n\nObrigado!`
+      : `Olá ${j.nome}!\n\nAqui é da equipe do Voleizou!\n\nSegue o link para enviar seu comprovante de pagamento referente a *${j.ref}*:\n\n${link}\n\nObrigado!`;
     const tel = j.telefone.replace(/\D/g, '');
-    window.open(`https://wa.me/55${tel}?text=${encodeURIComponent(msg)}`, '_blank');
+    const numero = tel.startsWith('55') ? tel : '55' + tel;
+    abrirUrl(`https://wa.me/${numero}?text=${encodeURIComponent(msg)}`);
   }
   cobrancaAvancar(true);
 }
@@ -2877,9 +2983,19 @@ const TIPO_BADGE = {
 
 async function carregarUsuarios() {
   try {
-    const lista = await api('GET', '/api/usuarios');
-    const fmt = d => d ? new Date(d).toLocaleDateString('pt-BR') : '—';
-    document.getElementById('config-usuarios-tbody').innerHTML = lista.map(u => `
+    const [lista, jogadores] = await Promise.all([
+      api('GET', '/api/usuarios'),
+      api('GET', '/api/jogadores'),
+    ]);
+    const fmtD = d => d ? new Date(d).toLocaleDateString('pt-BR') : '—';
+    const optsJogador = jogadores.filter(j => j.ativo).map(j =>
+      `<option value="${j.id}">${j.nome}</option>`).join('');
+
+    document.getElementById('config-usuarios-tbody').innerHTML = lista.map(u => {
+      const vinculo = u.jogador_nome
+        ? `<span class="badge bg-success-subtle text-success border border-success-subtle">${u.jogador_nome}</span>`
+        : `<span class="badge bg-warning-subtle text-warning border border-warning-subtle">Sem vínculo</span>`;
+      return `
       <tr>
         <td class="fw-semibold">${u.nome}</td>
         <td><code>${u.usuario}</code></td>
@@ -2891,17 +3007,52 @@ async function carregarUsuarios() {
             <option value="avulso"     ${u.tipo==='avulso'     ?'selected':''}>Avulso</option>
           </select>
         </td>
-        <td class="text-muted small">${fmt(u.criado_em)}</td>
+        <td>
+          <div class="d-flex align-items-center gap-2">
+            ${vinculo}
+            <button class="btn btn-sm btn-outline-secondary" title="Vincular jogador"
+                    onclick="abrirVincularJogador(${u.id}, '${u.nome.replace(/'/g,"\\'")}', ${u.jogador_id || 'null'})">
+              <i class="bi bi-link-45deg"></i>
+            </button>
+          </div>
+        </td>
+        <td class="text-muted small">${fmtD(u.criado_em)}</td>
         <td class="text-end">
-          <button class="btn btn-sm btn-outline-secondary me-1" onclick="abrirAlterarSenha(${u.id}, '${u.nome}')">
-            <i class="bi bi-key"></i> Senha
+          <button class="btn btn-sm btn-outline-secondary me-1" onclick="abrirAlterarSenha(${u.id}, '${u.nome.replace(/'/g,"\\'")}')">
+            <i class="bi bi-key"></i>
           </button>
-          <button class="btn btn-sm btn-outline-danger" onclick="excluirUsuario(${u.id}, '${u.nome}')">
+          <button class="btn btn-sm btn-outline-danger" onclick="excluirUsuario(${u.id}, '${u.nome.replace(/'/g,"\\'")}')">
             <i class="bi bi-trash"></i>
           </button>
         </td>
-      </tr>`).join('');
+      </tr>`;
+    }).join('');
+
+    // Guarda opções de jogadores para o modal de vínculo
+    window._optsJogador = `<option value="">— Nenhum —</option>${optsJogador}`;
   } catch(e) { toast('Erro ao carregar usuários', 'danger'); }
+}
+
+let _vincularUsuarioId = null;
+function abrirVincularJogador(usuarioId, nomeUsuario, jogadorIdAtual) {
+  _vincularUsuarioId = usuarioId;
+  document.getElementById('vincular-usuario-nome').textContent = nomeUsuario;
+  const sel = document.getElementById('vincular-jogador-select');
+  sel.innerHTML = window._optsJogador || '';
+  if (jogadorIdAtual) sel.value = jogadorIdAtual;
+  new bootstrap.Modal('#modalVincularJogador').show();
+}
+
+async function salvarVinculoJogador() {
+  const jogadorId = document.getElementById('vincular-jogador-select').value;
+  try {
+    await api('PUT', `/api/usuarios/${_vincularUsuarioId}/jogador`, {
+      jogador_id: jogadorId ? parseInt(jogadorId) : null
+    });
+    toast('Vínculo atualizado!');
+    bootstrap.Modal.getInstance('#modalVincularJogador').hide();
+    carregarUsuarios();
+  } catch(e) { toast(e.message, 'danger'); }
 }
 
 async function alterarTipoUsuario(id, tipo) {
@@ -3025,6 +3176,22 @@ async function togglePermissao(tipo, slug, valor, el) {
 }
 
 // ── Pendências Financeiras ────────────────────────────────────────────────────
+async function regenerarPendencias() {
+  const btn = document.getElementById('btn-regenerar-pendencias');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Recalculando...';
+  try {
+    await api('POST', '/api/pendencias/regenerar');
+    toast('Pendências recalculadas com sucesso!');
+    await carregarPendencias();
+  } catch(e) {
+    toast('Erro ao recalcular pendências.');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="bi bi-lightning me-1"></i>Recalcular';
+  }
+}
+
 async function carregarPendencias() {
   const div = document.getElementById('lista-pendencias');
   div.innerHTML = '<div class="text-center py-4"><div class="spinner-border text-primary"></div></div>';
@@ -3050,12 +3217,22 @@ async function carregarPendencias() {
             <span class="badge ${it.tipo === 'mensalidade' ? 'bg-warning text-dark' : 'bg-info text-dark'} me-1" style="font-size:.7rem">${it.tipo === 'mensalidade' ? 'Mensalidade' : 'Evento'}</span>
             <small>${it.descricao}</small>
           </span>
-          <strong class="text-danger">${fmt(it.valor)}</strong>
+          <div class="d-flex align-items-center gap-2">
+            <strong class="text-danger">${fmt(it.valor)}</strong>
+            ${isAdmin && it.id ? `<button class="btn btn-link btn-sm p-0 text-danger" title="Excluir pendência" onclick="excluirPendencia(${it.id})"><i class="bi bi-x-circle"></i></button>` : ''}
+          </div>
         </div>`).join('');
       const hasTel = j.telefone && j.telefone.replace(/\D/g, '').length >= 10;
+      // Monta a mensagem WPP e codifica para o atributo data-*
+      const wppMsg = hasTel ? (() => {
+        const fmtV = v => 'R$ ' + Number(v).toFixed(2).replace('.', ',');
+        const linhas = entry.itens.map(it => `- ${it.descricao}: ${fmtV(it.valor)}`).join('\n');
+        const link = `${baseUrl}/pagar/${j.id}`;
+        return encodeURIComponent(`Olá ${j.nome}!\n\nSuas pendências no Voleizou:\n${linhas}\n\nTotal: ${fmtV(entry.total)}\n\nPague pelo link:\n${link}`);
+      })() : '';
+      const tel = hasTel ? (s => s.startsWith('55') ? s : '55' + s)(j.telefone.replace(/\D/g,'')) : '';
 
       if (!isAdmin) {
-        // View simplificada para o próprio jogador
         return `
         <div class="card mb-3 border-danger border-opacity-25">
           <div class="card-body">
@@ -3073,7 +3250,6 @@ async function carregarPendencias() {
         </div>`;
       }
 
-      // View admin — lista completa com ações
       return `
       <div class="card mb-3">
         <div class="card-body">
@@ -3089,9 +3265,9 @@ async function carregarPendencias() {
           </div>
           <div class="border-top pt-2">${itens}</div>
           <div class="mt-3 d-flex gap-2">
-            ${hasTel ? `<button class="btn btn-sm btn-success" onclick="cobrarPendenciasWpp(${JSON.stringify(entry).replace(/'/g,'&apos;')})">
+            ${hasTel ? `<a class="btn btn-sm btn-success" href="https://wa.me/${tel}?text=${wppMsg}" target="_blank" rel="noopener noreferrer">
               <i class="bi bi-whatsapp me-1"></i>Cobrar via WhatsApp
-            </button>` : ''}
+            </a>` : ''}
             <a href="/pagar/${j.id}" target="_blank" class="btn btn-sm btn-outline-primary">
               <i class="bi bi-link-45deg me-1"></i>Link de pagamento
             </a>
@@ -3102,16 +3278,13 @@ async function carregarPendencias() {
   } catch(e) { div.innerHTML = `<div class="alert alert-danger">Erro ao carregar pendências.</div>`; }
 }
 
-function cobrarPendenciasWpp(entry) {
-  const j = entry.jogador;
-  const fmt = v => 'R$ ' + Number(v).toFixed(2).replace('.', ',');
-  const ball = String.fromCodePoint(0x1F3D0);
-  const linhas = entry.itens.map(it => `- ${it.descricao}: ${fmt(it.valor)}`).join('\n');
-  const link = `${window.location.origin}/pagar/${j.id}`;
-  const msg = `Olá ${j.nome}! ${ball}\n\nSuas pendências no Voleizou:\n${linhas}\n\nTotal: ${fmt(entry.total)}\n\nPague pelo link:\n${link}`;
-  const tel = j.telefone.replace(/\D/g, '');
-  const numero = tel.startsWith('55') ? tel : '55' + tel;
-  window.open(`https://wa.me/${numero}?text=${encodeURIComponent(msg)}`, '_blank');
+async function excluirPendencia(id) {
+  if (!confirm('Excluir esta pendência?')) return;
+  try {
+    await api('DELETE', `/api/pendencias/${id}`);
+    toast('Pendência excluída.');
+    carregarPendencias();
+  } catch(e) { toast('Erro ao excluir pendência.', 'danger'); }
 }
 
 // ── Config Valores ────────────────────────────────────────────────────────────
@@ -3165,7 +3338,7 @@ async function fazerLogin() {
     }
     const me = await fetch('/api/me', {credentials: 'include'}).then(r => r.json()).catch(() => ({}));
     document.getElementById('login-overlay').classList.add('d-none');
-    iniciarApp(me.permissoes, me.tipo, me.jogador_id);
+    iniciarApp(me.permissoes, me.tipo, me.jogador_id, me.public_url);
   } catch(e) {
     erro.textContent = 'Erro de conexão. Tente novamente.';
     erro.classList.remove('d-none');
@@ -3183,14 +3356,15 @@ async function fazerLogout() {
   document.getElementById('btn-login').innerHTML = '<i class="bi bi-box-arrow-in-right me-2"></i>Entrar';
 }
 
-async function iniciarApp(perms, tipo, jogadorId) {
+async function iniciarApp(perms, tipo, jogadorId, publicUrl) {
   tipoUsuarioLogado = tipo || 'admin';
   jogadorIdLogado = jogadorId || null;
+  if (publicUrl) baseUrl = publicUrl;
   aplicarPermissoes(perms || {});
   // Esconde botões de ação para não-admins
   if (tipoUsuarioLogado !== 'admin') {
     ['btn-novo-jogador','btn-novo-jogo','btn-novo-pagamento','btn-nova-saida',
-     'btn-link-convite','btn-cobrar-massa'].forEach(id => {
+     'btn-link-convite','btn-cobrar-massa','btn-regenerar-pendencias'].forEach(id => {
       const el = document.getElementById(id);
       if (el) el.classList.add('d-none');
     });
@@ -3199,10 +3373,22 @@ async function iniciarApp(perms, tipo, jogadorId) {
   try {
     configValores = await api('GET', '/api/config/valores');
   } catch(e) { /* usa defaults */ }
-  carregarDashboard();
+
+  // Restaura a última página visitada (se o usuário tiver permissão)
+  const paginaSalva = (() => {
+    try { return localStorage.getItem('volei_pagina'); } catch(e) { return null; }
+  })();
+  const paginaInicial = paginaSalva || 'dashboard';
+  const slugSalvo = paginaInicial.startsWith('config') ? 'config' : paginaInicial;
+  const podeAcessar = paginaInicial === 'dashboard' || (perms || {})[slugSalvo] !== false;
+  navegarPara(podeAcessar ? paginaInicial : 'dashboard');
+
   carregarIP();
   carregarPendentes();
   setInterval(() => carregarPendentes(), 30000);
+
+  // Revela o conteúdo agora que permissões já foram aplicadas
+  document.getElementById('main').style.visibility = '';
 }
 
 // ── Init ─────────────────────────────────────────────────────────────────────
@@ -3212,7 +3398,7 @@ async function iniciarApp(perms, tipo, jogadorId) {
     if (res.ok) {
       const dados = await res.json();
       document.getElementById('login-overlay').classList.add('d-none');
-      iniciarApp(dados.permissoes, dados.tipo, dados.jogador_id);
+      iniciarApp(dados.permissoes, dados.tipo, dados.jogador_id, dados.public_url);
     }
   } catch(e) { /* mantém overlay visível */ }
 })();

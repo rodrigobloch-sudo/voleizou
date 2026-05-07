@@ -6,6 +6,7 @@
   <title>Voleizou — Cadastro de Jogador</title>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet" />
   <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css" rel="stylesheet" />
+  <link href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css" rel="stylesheet" />
   <style>
     body { background: #f1f5f9; font-family: 'Segoe UI', sans-serif; }
     .card { border: none; border-radius: 16px; box-shadow: 0 2px 12px rgba(0,0,0,.1); }
@@ -56,7 +57,7 @@
         </div>
         <div class="mb-3">
           <label class="form-label">Data de nascimento <span class="text-danger">*</span></label>
-          <input type="date" class="form-control" id="c-nascimento" />
+          <input type="text" class="form-control" id="c-nascimento" placeholder="DD/MM/AAAA" readonly />
         </div>
         <div class="mb-3">
           <label class="form-label">RG <span class="text-danger">*</span></label>
@@ -108,7 +109,18 @@
     </div>
   </div>
 
+  <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+  <script src="https://cdn.jsdelivr.net/npm/flatpickr/dist/l10n/pt.js"></script>
   <script>
+    flatpickr.localize(flatpickr.l10ns.pt);
+    flatpickr('#c-nascimento', {
+      dateFormat: 'Y-m-d',
+      altInput: true,
+      altFormat: 'd/m/Y',
+      maxDate: 'today',
+      disableMobile: true,
+    });
+
     async function enviarCadastro() {
       const erro = document.getElementById('alerta-erro');
       erro.classList.add('d-none');

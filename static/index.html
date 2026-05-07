@@ -6,6 +6,7 @@
   <title>Voleizou</title>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet" />
   <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css" rel="stylesheet" />
+  <link href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css" rel="stylesheet" />
   <style>
     :root {
       --sidebar-w: 220px;
@@ -711,7 +712,7 @@
         </div>
         <div class="mb-3">
           <label class="form-label">Data de nascimento</label>
-          <input type="date" class="form-control" id="jogador-nascimento" />
+          <input type="text" class="form-control" id="jogador-nascimento" placeholder="DD/MM/AAAA" readonly />
         </div>
         <div class="mb-3">
           <label class="form-label">Telefone</label>
@@ -748,7 +749,7 @@
         <input type="hidden" id="jogo-id" />
         <div class="mb-3">
           <label class="form-label">Data *</label>
-          <input type="date" class="form-control" id="jogo-data" />
+          <input type="text" class="form-control" id="jogo-data" placeholder="DD/MM/AAAA" readonly />
         </div>
         <div class="row g-3 mb-3">
           <div class="col-7">
@@ -829,8 +830,7 @@
       <div class="modal-body">
         <p class="text-muted small mb-3" id="duplicar-jogo-info"></p>
         <label class="form-label">Nova data <span class="text-danger">*</span></label>
-        <input type="date" class="form-control" id="duplicar-jogo-data"
-               onkeydown="if(event.key==='Enter') confirmarDuplicarJogo()" />
+        <input type="text" class="form-control" id="duplicar-jogo-data" placeholder="DD/MM/AAAA" readonly />
       </div>
       <div class="modal-footer">
         <button class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
@@ -901,7 +901,7 @@
         </div>
         <div class="mb-3">
           <label class="form-label">Data do pagamento *</label>
-          <input type="date" class="form-control" id="pag-data" />
+          <input type="text" class="form-control" id="pag-data" placeholder="DD/MM/AAAA" readonly />
         </div>
         <div class="mb-3">
           <label class="form-label" id="pag-ref-label">Referência (mês)</label>
@@ -1018,7 +1018,7 @@
         </div>
         <div class="mb-3">
           <label class="form-label">Data *</label>
-          <input type="date" class="form-control" id="saida-data" />
+          <input type="text" class="form-control" id="saida-data" placeholder="DD/MM/AAAA" readonly />
         </div>
         <div class="mb-3">
           <label class="form-label">Categoria</label>
@@ -1067,7 +1067,7 @@
         </div>
         <div class="mb-3">
           <label class="form-label">Data *</label>
-          <input type="date" class="form-control" id="entrada-data" />
+          <input type="text" class="form-control" id="entrada-data" placeholder="DD/MM/AAAA" readonly />
         </div>
         <div class="mb-3">
           <label class="form-label">Categoria</label>
@@ -1302,7 +1302,36 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+<script src="https://cdn.jsdelivr.net/npm/flatpickr/dist/l10n/pt.js"></script>
 <script>
+// ── Flatpickr — configuração global ──────────────────────────────────────────
+flatpickr.localize(flatpickr.l10ns.pt);
+
+// Helper: define data num campo flatpickr (ou fallback para .value)
+function fpSet(id, val) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  if (el._flatpickr) el._flatpickr.setDate(val || null, false);
+  else el.value = val || '';
+}
+
+// Inicializa todos os datepickers depois que o DOM estiver pronto
+document.addEventListener('DOMContentLoaded', () => {
+  // Data de nascimento — navegação até anos passados, máx hoje
+  flatpickr('#jogador-nascimento', {
+    dateFormat: 'Y-m-d', altInput: true, altFormat: 'd/m/Y',
+    maxDate: 'today', disableMobile: true,
+  });
+
+  // Datas operacionais — formato ISO internamente, exibe DD/MM/YYYY
+  const opOpts = { dateFormat: 'Y-m-d', altInput: true, altFormat: 'd/m/Y', disableMobile: true };
+  ['jogo-data', 'duplicar-jogo-data', 'pag-data', 'saida-data', 'entrada-data'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) flatpickr(el, opOpts);
+  });
+});
+
 const API = '';
 const MESES = ['','Janeiro','Fevereiro','Março','Abril','Maio','Junho',
                'Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
@@ -1944,7 +1973,7 @@ function abrirModalJogador() {
   document.getElementById('jogador-email').value = '';
   setPosicoes('');
   document.getElementById('jogador-camisa').value = '';
-  document.getElementById('jogador-nascimento').value = '';
+  fpSet('jogador-nascimento', '');
   document.getElementById('jogador-telefone').value = '';
   document.getElementById('jogador-cpf').value = '';
   document.getElementById('jogador-rg').value = '';
@@ -1964,7 +1993,7 @@ async function editarJogador(id) {
   document.getElementById('jogador-email').value = j.email || '';
   setPosicoes(j.posicao || '');
   document.getElementById('jogador-camisa').value = j.numero_camisa != null ? j.numero_camisa : '';
-  document.getElementById('jogador-nascimento').value = j.data_nascimento || '';
+  fpSet('jogador-nascimento', j.data_nascimento || '');
   document.getElementById('jogador-telefone').value = j.telefone || '';
   document.getElementById('jogador-cpf').value = j.cpf || '';
   document.getElementById('jogador-rg').value = j.rg || '';
@@ -2202,7 +2231,7 @@ function jogoCategoriaMudou() {
 
 function abrirModalJogo() {
   document.getElementById('jogo-id').value = '';
-  document.getElementById('jogo-data').value = today();
+  fpSet('jogo-data', today());
   document.getElementById('jogo-categoria').value = '';
   document.getElementById('jogo-status').value = 'Planejado';
   document.getElementById('jogo-obs').value = '';
@@ -2222,7 +2251,7 @@ function editarJogo(id) {
   const j = todosJogos.find(x => x.id === id);
   if (!j) return;
   document.getElementById('jogo-id').value = j.id;
-  document.getElementById('jogo-data').value = j.data;
+  fpSet('jogo-data', j.data);
   document.getElementById('jogo-categoria').value = j.categoria || '';
   document.getElementById('jogo-status').value = j.status || 'Planejado';
   document.getElementById('jogo-obs').value = j.observacao || '';
@@ -2249,7 +2278,7 @@ function abrirDuplicarJogo(id) {
   const dataFmt = fmtDate(j.data);
   document.getElementById('duplicar-jogo-info').textContent =
     `Duplicando: ${cat} de ${dataFmt}${j.observacao ? ' · ' + j.observacao : ''}`;
-  document.getElementById('duplicar-jogo-data').value = today();
+  fpSet('duplicar-jogo-data', today());
   new bootstrap.Modal('#modalDuplicarJogo').show();
   setTimeout(() => document.getElementById('duplicar-jogo-data').focus(), 300);
 }
@@ -2457,7 +2486,7 @@ async function abrirModalPagamento() {
   const jogadores = await api('GET', '/api/jogadores');
   const sel = document.getElementById('pag-jogador');
   sel.innerHTML = jogadores.filter(j => j.ativo).map(j => `<option value="${j.id}" data-tipo="${j.tipo}">${j.nome} (${j.tipo})</option>`).join('');
-  document.getElementById('pag-data').value = today();
+  fpSet('pag-data', today());
   document.getElementById('pag-valor').value = '';
   document.getElementById('pag-obs').value = '';
   onPagJogadorChange();
@@ -2547,7 +2576,7 @@ async function carregarSaidas() {
 function abrirModalSaida() {
   document.getElementById('saida-desc').value = '';
   document.getElementById('saida-valor').value = '';
-  document.getElementById('saida-data').value = today();
+  fpSet('saida-data', today());
   document.getElementById('saida-cat').value = '';
   document.getElementById('saida-obs').value = '';
   new bootstrap.Modal('#modalSaida').show();
@@ -2613,7 +2642,7 @@ function abrirModalEntrada(id, desc, valor, data, cat, obs) {
   document.getElementById('entrada-id').value = id || '';
   document.getElementById('entrada-desc').value = desc || '';
   document.getElementById('entrada-valor').value = valor || '';
-  document.getElementById('entrada-data').value = data || today();
+  fpSet('entrada-data', data || today());
   document.getElementById('entrada-cat').value = cat || '';
   document.getElementById('entrada-obs').value = obs || '';
   document.getElementById('modalEntradaTitulo').textContent = id ? 'Editar entrada' : 'Registrar entrada';

@@ -1611,10 +1611,11 @@ function renderCalendario(mes, ano, jogos, aniversariantes) {
     jogosPorDia[dia].push(j);
   });
 
-  // Mapa de dia → lista de nomes de aniversariantes
+  // Mapa de dia → lista de nomes de aniversariantes (usa campo "dia" já calculado no backend)
   const anivPorDia = {};
   (aniversariantes || []).forEach(a => {
-    const dia = parseInt(a.data_nascimento.split('-')[2]);
+    const dia = a.dia || parseInt((a.data_nascimento || '').split('-')[2]);
+    if (!dia) return;
     if (!anivPorDia[dia]) anivPorDia[dia] = [];
     anivPorDia[dia].push(a.nome.split(' ')[0]);
   });
@@ -1665,20 +1666,27 @@ function renderCalendario(mes, ano, jogos, aniversariantes) {
 
   // Legenda de categorias presentes no mês
   const cats = [...new Set((jogos || []).map(j => j.categoria || 'Jogo Semanal'))];
-  if (cats.length > 0) {
+  const temAnivNoMes = (aniversariantes || []).length > 0;
+  if (cats.length > 0 || temAnivNoMes) {
     html += `<div class="d-flex flex-wrap gap-3 mt-2 pt-2 border-top">`;
     cats.forEach(cat => {
       html += `<span class="d-flex align-items-center gap-1 small text-muted">
         <span style="width:8px;height:8px;border-radius:50%;background:${catEventColor(cat)};display:inline-block"></span>${cat}
       </span>`;
     });
+    if (temAnivNoMes) {
+      html += `<span class="d-flex align-items-center gap-1 small text-muted">
+        <span style="width:8px;height:8px;border-radius:50%;background:#be185d;display:inline-block"></span>Aniversário
+      </span>`;
+    }
     html += `</div>`;
   }
 
-  // Lista dos eventos do mês
-  if (jogos && jogos.length > 0) {
+  // Lista dos eventos do mês + aniversariantes
+  const temListagem = (jogos && jogos.length > 0) || temAnivNoMes;
+  if (temListagem) {
     html += `<div class="mt-3 pt-2 border-top">`;
-    jogos.forEach(j => {
+    (jogos || []).forEach(j => {
       const cor = catEventColor(j.categoria);
       const [,, diaStr] = j.data.split('-');
       html += `<div class="d-flex align-items-center gap-2 py-1 small">
@@ -1686,9 +1694,13 @@ function renderCalendario(mes, ano, jogos, aniversariantes) {
         <span><strong>Dia ${parseInt(diaStr)}</strong> — <span style="color:${cor}">${j.categoria || 'Jogo Semanal'}</span>${j.observacao ? ' · ' + j.observacao : ''}</span>
       </div>`;
     });
+    (aniversariantes || []).forEach(a => {
+      html += `<div class="d-flex align-items-center gap-2 py-1 small">
+        <span style="width:8px;height:8px;border-radius:50%;background:#be185d;flex-shrink:0"></span>
+        <span><strong>Dia ${a.dia}</strong> — <span style="color:#be185d">Aniversário de ${a.nome.split(' ')[0]}</span></span>
+      </div>`;
+    });
     html += `</div>`;
-  } else {
-    html += `<p class="text-muted small mt-3 mb-0">Nenhum evento registrado neste mês.</p>`;
   }
 
   div.innerHTML = html;
@@ -1744,7 +1756,8 @@ function renderCalendarioCompleto(mes, ano, jogos, aniversariantes) {
   // Mapa de dia → nomes (primeiro nome) dos aniversariantes
   const anivPorDia = {};
   (aniversariantes || []).forEach(a => {
-    const dia = parseInt(a.data_nascimento.split('-')[2]);
+    const dia = a.dia || parseInt((a.data_nascimento || '').split('-')[2]);
+    if (!dia) return;
     if (!anivPorDia[dia]) anivPorDia[dia] = [];
     anivPorDia[dia].push(a.nome.split(' ')[0]);
   });

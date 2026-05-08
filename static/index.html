@@ -1612,6 +1612,14 @@ async function carregarDashboard() {
   } catch(e) { toast(e.message, 'danger'); }
 }
 
+function avatarHtml(jogadorId, temFoto, nome, size = 32) {
+  const fs = Math.round(size * 0.38);
+  if (temFoto) {
+    return `<img src="/api/jogadores/${jogadorId}/foto" style="width:${size}px;height:${size}px;border-radius:50%;object-fit:cover;flex-shrink:0" />`;
+  }
+  return `<div style="width:${size}px;height:${size}px;border-radius:50%;background:#2563eb;color:#fff;display:flex;align-items:center;justify-content:center;font-size:${fs}px;font-weight:700;flex-shrink:0">${(nome||'?')[0].toUpperCase()}</div>`;
+}
+
 function catEventColor(categoria) {
   if (categoria === 'Liga Semestral/Anual') return '#dc2626';
   if (categoria === 'Torneios Diversos')   return '#d97706';
@@ -2614,7 +2622,7 @@ async function carregarPagamentos() {
     tbody.innerHTML = pagamentos.map(p => `
       <tr>
         <td class="ps-3">${fmtDate(p.data_pagamento)}</td>
-        <td>${p.jogador_nome}</td>
+        <td><div class="d-flex align-items-center gap-2">${avatarHtml(p.jogador_id, p.tem_foto, p.jogador_nome)}<span>${p.jogador_nome}</span></div></td>
         <td>${p.descricao_tipo || p.tipo}</td>
         <td>${p.referencia || '—'}</td>
         <td class="fw-bold text-success">${fmt(p.valor)}</td>
@@ -3167,9 +3175,12 @@ async function carregarPendentes() {
       <div class="card mb-3">
         <div class="card-body">
           <div class="d-flex justify-content-between align-items-start">
-            <div>
-              <h6 class="fw-bold mb-1">${p.jogador_nome}</h6>
-              <span class="text-muted me-2">${p.descricao_tipo || p.tipo}</span>
+            <div class="d-flex align-items-center gap-2">
+              ${avatarHtml(p.jogador_id, p.tem_foto, p.jogador_nome, 40)}
+              <div>
+                <h6 class="fw-bold mb-0">${p.jogador_nome}</h6>
+                <span class="text-muted small">${p.descricao_tipo || p.tipo}</span>
+              </div>
             </div>
             <strong class="text-success fs-5">${fmt(p.valor)}</strong>
           </div>
@@ -3761,9 +3772,12 @@ async function carregarPendencias() {
       <div class="card mb-3">
         <div class="card-body">
           <div class="d-flex justify-content-between align-items-start mb-2">
-            <div>
-              <strong>${j.nome}</strong> ${tipoBadge}
-              ${j.telefone ? `<small class="text-muted d-block">${j.telefone}</small>` : ''}
+            <div class="d-flex align-items-center gap-2">
+              ${avatarHtml(j.id, j.tem_foto, j.nome, 40)}
+              <div>
+                <div><strong>${j.nome}</strong> ${tipoBadge}</div>
+                ${j.telefone ? `<small class="text-muted">${j.telefone}</small>` : ''}
+              </div>
             </div>
             <div class="text-end">
               <div class="fw-bold text-danger fs-5">${fmt(entry.total)}</div>

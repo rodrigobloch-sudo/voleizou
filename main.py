@@ -1743,6 +1743,7 @@ def listar_pagamentos(
             "id": p.id,
             "jogador_id": p.jogador_id,
             "jogador_nome": p.jogador.nome,
+            "tem_foto": bool(p.jogador.foto),
             "valor": p.valor,
             "data_pagamento": p.data_pagamento.isoformat(),
             "referencia": p.referencia,
@@ -2284,6 +2285,7 @@ def listar_pendentes(db: Session = Depends(get_db)):
             "id": p.id,
             "jogador_id": p.jogador_id,
             "jogador_nome": p.jogador.nome,
+            "tem_foto": bool(p.jogador.foto),
             "valor": p.valor,
             "data_pagamento": p.data_pagamento.isoformat(),
             "referencia": p.referencia,
@@ -2394,7 +2396,8 @@ def listar_pendencias(request: Request, db: Session = Depends(get_db)):
             if falta > 0:
                 if j.id not in result:
                     result[j.id] = {"jogador": {"id": j.id, "nome": j.nome, "tipo": j.tipo,
-                                                 "telefone": j.telefone, "email": j.email}, "itens": []}
+                                                 "telefone": j.telefone, "email": j.email,
+                                                 "tem_foto": bool(j.foto)}, "itens": []}
                 result[j.id]["itens"].append({
                     "id": None, "tipo": "mensalidade",
                     "descricao": f"Mensalidade {MESES_PT[m]} {y}",

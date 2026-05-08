@@ -775,9 +775,11 @@ app.add_middleware(
 
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
+_NO_CACHE_HEADERS = {"Cache-Control": "no-cache, no-store, must-revalidate", "Pragma": "no-cache", "Expires": "0"}
+
 @app.get("/")
 def root():
-    return FileResponse("static/index.html")
+    return FileResponse("static/index.html", headers=_NO_CACHE_HEADERS)
 
 @app.get("/cadastro")
 def pagina_cadastro():

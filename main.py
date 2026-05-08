@@ -751,9 +751,11 @@ def me(request: Request, db: Session = Depends(get_db)):
     except Exception:
         login = ""
     u = db.query(models.Usuario).filter(models.Usuario.usuario == login).first()
-    tipo = (u.tipo or "admin") if u else "admin"
+    if not u:
+        raise HTTPException(401, "Sessão inválida — faça login novamente")
+    tipo = u.tipo or "avulso"
     perms = db.query(models.Permissao).filter(models.Permissao.tipo_usuario == tipo).all()
-    jogador_id = u.jogador_id if u else None
+    jogador_id = u.jogador_id
     public_url = os.getenv("PUBLIC_URL", "").rstrip("/")
     return {
         "ok": True,

@@ -1643,15 +1643,20 @@ function renderCalendario(mes, ano, jogos, aniversariantes) {
     if (anivs.length) titleParts.push('🎂 ' + anivs.join(', '));
     const title = titleParts.join(' | ');
 
+    const bgStyle = isRealizado
+      ? 'background:rgba(100,116,139,0.1);border:1px solid #94a3b850;opacity:0.75;'
+      : cor ? `background:${cor}18;border:1px solid ${cor}50;`
+      : anivs.length ? 'background:#fdf2f8;border:1px solid #f9a8d4;'
+      : '';
     html += `<div class="text-center rounded" style="
       min-height:34px;padding:3px 1px;
       ${isHoje ? 'background:#dbeafe;font-weight:700;' : ''}
-      ${isRealizado ? 'background:rgba(100,116,139,0.1);border:1px solid #94a3b850;opacity:0.75;' : cor ? `background:${cor}18;border:1px solid ${cor}50;` : ''}
+      ${bgStyle}
     " ${title ? `title="${title}"` : ''}>
-      <span style="font-size:0.8rem;${isRealizado ? 'color:#94a3b8;font-weight:700' : cor ? `color:${cor};font-weight:700` : ''}">${dia}</span>
+      <span style="font-size:0.8rem;${isRealizado ? 'color:#94a3b8;font-weight:700' : cor ? `color:${cor};font-weight:700` : anivs.length ? 'color:#be185d;font-weight:700' : ''}">${dia}</span>
       <div style="display:flex;justify-content:center;gap:2px;margin-top:1px">
         ${eventos.map(j => `<span style="width:5px;height:5px;border-radius:50%;background:${isRealizado ? '#94a3b8' : catEventColor(j.categoria)};display:inline-block"></span>`).join('')}
-        ${anivs.length ? `<span style="font-size:0.6rem;line-height:1">🎂</span>` : ''}
+        ${anivs.length ? `<span style="width:5px;height:5px;border-radius:50%;background:#be185d;display:inline-block"></span>` : ''}
       </div>
     </div>`;
   }

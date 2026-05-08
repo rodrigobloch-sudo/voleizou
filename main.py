@@ -364,6 +364,52 @@ def _corrigir_tipo_pagamentos_evento():
 
 _corrigir_tipo_pagamentos_evento()
 
+# ── Job de aniversário ────────────────────────────────────────────────────────
+
+def _job_aniversario():
+    """Roda diariamente: envia e-mail de parabéns para jogadores que fazem aniversário hoje."""
+    hoje = date.today()
+    db = SessionLocal()
+    try:
+        jogadores = db.query(models.Jogador).filter(
+            models.Jogador.ativo == True,
+            models.Jogador.email != None,
+            models.Jogador.data_nascimento != None,
+        ).all()
+        for j in jogadores:
+            if (j.data_nascimento.month == hoje.month and
+                    j.data_nascimento.day == hoje.day):
+                primeiro_nome = j.nome.split()[0]
+                try:
+                    _enviar_email(
+                        to=j.email,
+                        subject="Feliz Aniversário!",
+                        body=(
+                            f"Olá {primeiro_nome}!\n\n"
+                            f"A equipe Voleizou deseja a você um feliz aniversário! "
+                            f"Que seja um dia especial, com muita saúde e alegria.\n\n"
+                            f"Nos vemos na quadra!\n\n"
+                            f"— Equipe Voleizou"
+                        ),
+                    )
+                    print(f"[ANIVERSÁRIO] E-mail enviado para {j.nome} ({j.email})")
+                except Exception as e:
+                    print(f"[ANIVERSÁRIO] Erro ao enviar para {j.nome}: {e}")
+    except Exception as e:
+        print(f"[ANIVERSÁRIO] Erro no job: {e}")
+    finally:
+        db.close()
+
+def _iniciar_scheduler():
+    from apscheduler.schedulers.background import BackgroundScheduler
+    scheduler = BackgroundScheduler()
+    # Roda todo dia às 08:00
+    scheduler.add_job(_job_aniversario, "cron", hour=8, minute=0)
+    scheduler.start()
+    print("[SCHEDULER] Job de aniversário agendado para 08:00 diariamente.")
+
+_iniciar_scheduler()
+
 def _get_config(db: Session) -> dict:
     """Retorna dict com os valores de configuração convertidos para float."""
     rows = db.query(models.Configuracao).all()
@@ -1173,6 +1219,13 @@ def get_convite_link(request: Request):
     public_url = os.getenv("PUBLIC_URL", str(request.base_url).rstrip("/"))
     return {"link": f"{public_url}/cadastro"}
 
+
+@app.post("/api/admin/aniversario/disparar")
+def disparar_aniversario(request: Request, db: Session = Depends(get_db)):
+    """Admin: dispara manualmente o job de e-mails de aniversário para hoje."""
+    _exigir_admin(request, db)
+    _job_aniversario()
+    return {"ok": True, "mensagem": "Job de aniversário executado."}
 
 @app.get("/api/admin/test-email")
 def test_email(para: str = ""):

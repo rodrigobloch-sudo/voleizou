@@ -1372,7 +1372,9 @@ let permissoesGlobais = {};
 let tipoUsuarioLogado = 'admin';
 let jogadorIdLogado = null;
 
-function navegarPara(page) {
+let _navegandoPorHistorico = false;
+
+function navegarPara(page, pushHistory = true) {
   // Dashboard é sempre acessível (é a home); demais respeitam permissões
   const slug = page.startsWith('config') ? 'config' : page;
   if (page !== 'dashboard' && permissoesGlobais[slug] === false) {
@@ -1386,6 +1388,10 @@ function navegarPara(page) {
   if (pageEl) pageEl.classList.add('active');
   // Persiste a página atual para restaurar ao recarregar
   try { localStorage.setItem('volei_pagina', page); } catch(e) {}
+  // Registra no histórico do navegador (botão voltar/avançar)
+  if (pushHistory && !_navegandoPorHistorico) {
+    history.pushState({ page }, '', `#${page}`);
+  }
   if (page === 'dashboard')         carregarDashboard();
   if (page === 'jogadores')         carregarJogadores();
   if (page === 'jogos')             carregarJogos();
@@ -1400,6 +1406,14 @@ function navegarPara(page) {
   if (page === 'pendencias')        carregarPendencias();
   if (page === 'calendario')        carregarCalendario();
 }
+
+// Intercepta botão voltar/avançar do navegador
+window.addEventListener('popstate', e => {
+  const page = e.state?.page || 'dashboard';
+  _navegandoPorHistorico = true;
+  navegarPara(page, false);
+  _navegandoPorHistorico = false;
+});
 
 document.querySelectorAll('#sidebar nav a[data-page]').forEach(link => {
   link.addEventListener('click', e => {
@@ -3828,10 +3842,15 @@ async function iniciarApp(perms, tipo, jogadorId, publicUrl) {
   const paginaSalva = (() => {
     try { return localStorage.getItem('volei_pagina'); } catch(e) { return null; }
   })();
-  const paginaInicial = paginaSalva || 'dashboard';
+  // Tenta ler página do hash da URL (ex: ao recarregar #jogadores)
+  const hashPage = location.hash.replace('#', '') || null;
+  const paginaInicial = hashPage || paginaSalva || 'dashboard';
   const slugSalvo = paginaInicial.startsWith('config') ? 'config' : paginaInicial;
   const podeAcessar = paginaInicial === 'dashboard' || (perms || {})[slugSalvo] !== false;
-  navegarPara(podeAcessar ? paginaInicial : 'dashboard');
+  const paginaFinal = podeAcessar ? paginaInicial : 'dashboard';
+  // Coloca estado inicial no histórico (sem duplicar se já há hash)
+  history.replaceState({ page: paginaFinal }, '', `#${paginaFinal}`);
+  navegarPara(paginaFinal, false);
 
   carregarIP();
   if (tipoUsuarioLogado === 'admin') {

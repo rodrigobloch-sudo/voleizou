@@ -386,10 +386,13 @@ def _job_aniversario():
                         subject="Feliz Aniversário!",
                         body=(
                             f"Olá {primeiro_nome}!\n\n"
-                            f"A equipe Voleizou deseja a você um feliz aniversário! "
-                            f"Que seja um dia especial, com muita saúde e alegria.\n\n"
-                            f"Nos vemos na quadra!\n\n"
-                            f"— Equipe Voleizou"
+                            f"Hoje é dia de celebrar a pessoa incrível que você é! "
+                            f"Que não faltem motivos para sorrir, abraços apertados, momentos especiais e muito amor ao seu redor.\n\n"
+                            f"Que este novo ciclo venha cheio de saúde, conquistas, paz, alegrias e sonhos realizados. "
+                            f"Você merece tudo de melhor que a vida pode oferecer!\n\n"
+                            f"Aproveite muito o seu dia, curta cada momento e nunca perca essa luz especial que você transmite.\n\n"
+                            f"Parabéns pelo seu aniversário!\n\n"
+                            f"Com carinho, time Voleizou"
                         ),
                     )
                     print(f"[ANIVERSÁRIO] E-mail enviado para {j.nome} ({j.email})")

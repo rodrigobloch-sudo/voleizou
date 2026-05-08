@@ -1538,7 +1538,7 @@ async function carregarDashboard() {
     }
 
     // Calendário
-    renderCalendario(d.mes, d.ano, d.jogos_mes);
+    renderCalendario(d.mes, d.ano, d.jogos_mes, d.aniversariantes || []);
 
     // Presenças
     const presDiv = document.getElementById('dash-presencas');
@@ -1599,16 +1599,24 @@ function catEventColor(categoria) {
   return '#2563eb'; // Jogo Semanal / padrão
 }
 
-function renderCalendario(mes, ano, jogos) {
+function renderCalendario(mes, ano, jogos, aniversariantes) {
   const div = document.getElementById('dash-calendario');
   const diasSemana = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
 
-  // Mapa de dia → lista de jogos (pode haver mais de um por dia no futuro)
+  // Mapa de dia → lista de jogos
   const jogosPorDia = {};
   (jogos || []).forEach(j => {
     const dia = parseInt(j.data.split('-')[2]);
     if (!jogosPorDia[dia]) jogosPorDia[dia] = [];
     jogosPorDia[dia].push(j);
+  });
+
+  // Mapa de dia → lista de nomes de aniversariantes
+  const anivPorDia = {};
+  (aniversariantes || []).forEach(a => {
+    const dia = parseInt(a.data_nascimento.split('-')[2]);
+    if (!anivPorDia[dia]) anivPorDia[dia] = [];
+    anivPorDia[dia].push(a.nome.split(' ')[0]);
   });
 
   const primeiroDia = new Date(ano, mes - 1, 1).getDay();
@@ -1627,10 +1635,13 @@ function renderCalendario(mes, ano, jogos) {
 
   for (let dia = 1; dia <= ultimoDia; dia++) {
     const eventos = jogosPorDia[dia] || [];
+    const anivs = anivPorDia[dia] || [];
     const isHoje = dia === diaHoje;
     const cor = eventos.length > 0 ? catEventColor(eventos[0].categoria) : null;
     const isRealizado = eventos.length > 0 && eventos.every(j => (j.status_efetivo || j.status) === 'Realizado');
-    const title = eventos.map(j => `${j.categoria || 'Jogo'}${j.observacao ? ' · ' + j.observacao : ''}`).join(' | ');
+    const titleParts = eventos.map(j => `${j.categoria || 'Jogo'}${j.observacao ? ' · ' + j.observacao : ''}`);
+    if (anivs.length) titleParts.push('🎂 ' + anivs.join(', '));
+    const title = titleParts.join(' | ');
 
     html += `<div class="text-center rounded" style="
       min-height:34px;padding:3px 1px;
@@ -1640,6 +1651,7 @@ function renderCalendario(mes, ano, jogos) {
       <span style="font-size:0.8rem;${isRealizado ? 'color:#94a3b8;font-weight:700' : cor ? `color:${cor};font-weight:700` : ''}">${dia}</span>
       <div style="display:flex;justify-content:center;gap:2px;margin-top:1px">
         ${eventos.map(j => `<span style="width:5px;height:5px;border-radius:50%;background:${isRealizado ? '#94a3b8' : catEventColor(j.categoria)};display:inline-block"></span>`).join('')}
+        ${anivs.length ? `<span style="font-size:0.6rem;line-height:1">🎂</span>` : ''}
       </div>
     </div>`;
   }
@@ -1698,7 +1710,7 @@ async function carregarCalendario() {
   try {
     const d = await api('GET', `/api/dashboard?mes=${calMes}&ano=${calAno}`);
     document.getElementById('cal-titulo').textContent = d.mes_nome;
-    renderCalendarioCompleto(d.mes, d.ano, d.jogos_mes);
+    renderCalendarioCompleto(d.mes, d.ano, d.jogos_mes, d.aniversariantes || []);
   } catch(e) { toast(e.message, 'danger'); }
 }
 
@@ -1715,13 +1727,21 @@ function mudaMesCalendario(delta) {
   carregarCalendario();
 }
 
-function renderCalendarioCompleto(mes, ano, jogos) {
+function renderCalendarioCompleto(mes, ano, jogos, aniversariantes) {
   const diasSemana = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
   const jogosPorDia = {};
   (jogos || []).forEach(j => {
     const dia = parseInt(j.data.split('-')[2]);
     if (!jogosPorDia[dia]) jogosPorDia[dia] = [];
     jogosPorDia[dia].push(j);
+  });
+
+  // Mapa de dia → nomes (primeiro nome) dos aniversariantes
+  const anivPorDia = {};
+  (aniversariantes || []).forEach(a => {
+    const dia = parseInt(a.data_nascimento.split('-')[2]);
+    if (!anivPorDia[dia]) anivPorDia[dia] = [];
+    anivPorDia[dia].push(a.nome.split(' ')[0]);
   });
 
   const primeiroDia = new Date(ano, mes - 1, 1).getDay();
@@ -1737,15 +1757,18 @@ function renderCalendarioCompleto(mes, ano, jogos) {
   });
   for (let i = 0; i < primeiroDia; i++) grid += `<div></div>`;
   for (let dia = 1; dia <= ultimoDia; dia++) {
-    const eventos  = jogosPorDia[dia] || [];
-    const isHoje   = dia === diaHoje;
-    const isSel    = dia === calDiaSelecionado;
+    const eventos   = jogosPorDia[dia] || [];
+    const anivs     = anivPorDia[dia] || [];
+    const isHoje    = dia === diaHoje;
+    const isSel     = dia === calDiaSelecionado;
     const temEvento = eventos.length > 0;
-    const cor      = temEvento ? catEventColor(eventos[0].categoria) : null;
+    const temAniv   = anivs.length > 0;
+    const cor       = temEvento ? catEventColor(eventos[0].categoria) : null;
     const isRealizado = temEvento && eventos.every(j => (j.status_efetivo || j.status) === 'Realizado');
-    const label    = eventos.length === 1
+    const label     = eventos.length === 1
       ? (eventos[0].categoria || 'Jogo Semanal')
       : eventos.length > 1 ? `${eventos.length} eventos` : '';
+    const temConteudo = temEvento || temAniv;
 
     const bgColor = isSel
       ? (cor || '#2563eb') + '20'
@@ -1758,11 +1781,11 @@ function renderCalendarioCompleto(mes, ano, jogos) {
       ? (cor || '#2563eb')
       : isRealizado
         ? '#94a3b880'
-        : temEvento ? cor + '60' : '#e2e8f0';
+        : temEvento ? cor + '60' : temAniv ? '#f9a8d480' : '#e2e8f0';
     const textColor = isRealizado ? '#94a3b8' : temEvento ? cor : isHoje ? '#1d4ed8' : '#64748b';
 
     grid += `<div onclick="selecionarDiaCalendario(${dia})" style="
-        min-height:64px;padding:6px 4px;border-radius:8px;cursor:${temEvento ? 'pointer' : 'default'};
+        min-height:64px;padding:6px 4px;border-radius:8px;cursor:${temConteudo ? 'pointer' : 'default'};
         border:2px solid ${borderColor};
         background:${bgColor};
         transition:all .15s;
@@ -1772,6 +1795,7 @@ function renderCalendarioCompleto(mes, ano, jogos) {
         ${dia}${isHoje ? ' ·' : ''}
       </div>
       ${label ? `<div style="font-size:.62rem;line-height:1.2;color:${textColor};margin-top:2px;font-weight:600;overflow:hidden">${label}${isRealizado ? ' ✓' : ''}</div>` : ''}
+      ${anivs.length ? `<div style="font-size:.6rem;line-height:1.2;color:#be185d;margin-top:2px;overflow:hidden">🎂 ${anivs.join(', ')}</div>` : ''}
     </div>`;
   }
   grid += `</div>`;
@@ -1789,7 +1813,7 @@ function renderCalendarioCompleto(mes, ano, jogos) {
   }
 
   document.getElementById('cal-grid').innerHTML = grid;
-  renderEventosCalendario(jogos, jogosPorDia);
+  renderEventosCalendario(jogos, jogosPorDia, anivPorDia);
 }
 
 function selecionarDiaCalendario(dia) {
@@ -1798,30 +1822,32 @@ function selecionarDiaCalendario(dia) {
   carregarCalendario();
 }
 
-function renderEventosCalendario(jogos, jogosPorDia) {
+function renderEventosCalendario(jogos, jogosPorDia, anivPorDia) {
   const div = document.getElementById('cal-eventos');
-  if (!jogos || jogos.length === 0) {
-    div.innerHTML = `<div class="alert alert-light border text-muted small"><i class="bi bi-calendar-x me-1"></i>Nenhum evento neste mês.</div>`;
-    return;
-  }
+  anivPorDia = anivPorDia || {};
 
   // Se há dia selecionado, filtra; senão mostra todos
   const lista = calDiaSelecionado
     ? (jogosPorDia[calDiaSelecionado] || [])
     : jogos;
 
-  if (lista.length === 0) {
+  const anivsDia = calDiaSelecionado ? (anivPorDia[calDiaSelecionado] || []) : [];
+
+  if (lista.length === 0 && (!jogos || jogos.length === 0)) {
+    div.innerHTML = `<div class="alert alert-light border text-muted small"><i class="bi bi-calendar-x me-1"></i>Nenhum evento neste mês.</div>`;
+    return;
+  }
+  if (lista.length === 0 && anivsDia.length === 0) {
     div.innerHTML = `<div class="alert alert-light border text-muted small">Nenhum evento no dia ${calDiaSelecionado}.</div>`;
     return;
   }
 
-  div.innerHTML = lista.map(j => {
+  let html = lista.map(j => {
     const cor = catEventColor(j.categoria);
     const [, , diaStr] = j.data.split('-');
     const se = j.status_efetivo || j.status || 'Planejado';
     const statusColor = se === 'Confirmado' ? 'bg-success' : se === 'Cancelado' ? 'bg-danger'
       : se === 'Realizado' ? 'bg-secondary' : 'bg-light text-dark border';
-    const nPartic = (j.avulsos || []).length + (j.mensalistas_presentes_count ?? 0);
     return `
     <div class="card mb-2 p-3" style="border-left:4px solid ${cor}">
       <div class="d-flex justify-content-between align-items-start">
@@ -1839,6 +1865,19 @@ function renderEventosCalendario(jogos, jogosPorDia) {
       </div>
     </div>`;
   }).join('');
+
+  // Aniversariantes do dia selecionado
+  if (anivsDia.length > 0) {
+    html += anivsDia.map(nome => `
+    <div class="card mb-2 p-3" style="border-left:4px solid #be185d;background:#fdf2f8">
+      <div class="d-flex align-items-center gap-2">
+        <span style="font-size:1.3rem">🎂</span>
+        <div class="fw-bold" style="color:#be185d">${nome} — Aniversário!</div>
+      </div>
+    </div>`).join('');
+  }
+
+  div.innerHTML = html || `<div class="alert alert-light border text-muted small">Nenhum evento neste mês.</div>`;
 }
 
 function irParaJogo(id) {

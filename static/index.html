@@ -728,6 +728,25 @@
             <input type="text" class="form-control" id="jogador-rg" placeholder="00.000.000-0" />
           </div>
         </div>
+        <div class="mb-3" id="secao-foto-jogador" style="display:none">
+          <label class="form-label">Foto</label>
+          <div class="d-flex align-items-center gap-3">
+            <img id="preview-foto-jogador" src="" alt="foto"
+              style="width:72px;height:72px;border-radius:50%;object-fit:cover;border:2px solid #e2e8f0;display:none" />
+            <div id="avatar-placeholder-modal" class="rounded-circle bg-primary text-white d-flex align-items-center justify-content-center flex-shrink-0"
+              style="width:72px;height:72px;font-size:1.6rem;font-weight:700"></div>
+            <div>
+              <input type="file" id="input-foto-jogador" accept="image/*" class="d-none" onchange="previewFoto(this)" />
+              <button class="btn btn-sm btn-outline-secondary" onclick="document.getElementById('input-foto-jogador').click()">
+                <i class="bi bi-camera me-1"></i>Escolher foto
+              </button>
+              <button class="btn btn-sm btn-outline-danger ms-1" id="btn-remover-foto" style="display:none" onclick="removerFotoJogador()">
+                <i class="bi bi-trash"></i>
+              </button>
+              <div class="form-text mt-1">JPG, PNG ou HEIC. Máx. 5 MB.</div>
+            </div>
+          </div>
+        </div>
       </div>
       <div class="modal-footer">
         <button class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
@@ -2014,7 +2033,15 @@ function renderJogadores() {
   }
   tbody.innerHTML = lista.map(j => `
     <tr>
-      <td class="ps-3"><strong>${j.nome}</strong></td>
+      <td class="ps-3">
+        <div class="d-flex align-items-center gap-2">
+          ${j.tem_foto
+            ? `<img src="/api/jogadores/${j.id}/foto" style="width:32px;height:32px;border-radius:50%;object-fit:cover;flex-shrink:0" />`
+            : `<div style="width:32px;height:32px;border-radius:50%;background:#2563eb;color:#fff;display:flex;align-items:center;justify-content:center;font-size:.85rem;font-weight:700;flex-shrink:0">${j.nome[0].toUpperCase()}</div>`
+          }
+          <strong>${j.nome}</strong>
+        </div>
+      </td>
       <td><span class="badge ${j.tipo === 'mensalista' ? 'badge-mensalista' : 'badge-avulso'}">${j.tipo}</span></td>
       <td>${j.posicao ? j.posicao.split(',').map(p => `<span class="badge bg-light text-dark border me-1">${p.trim()}</span>`).join('') : '—'}</td>
       <td>${j.numero_camisa != null ? '#' + j.numero_camisa : '—'}</td>
@@ -2052,6 +2079,60 @@ function getPosicoes() {
   return checked.map(cb => cb.value).join(',') || null;
 }
 
+function _resetFotoModal(jogadorId, temFoto) {
+  const secao = document.getElementById('secao-foto-jogador');
+  const preview = document.getElementById('preview-foto-jogador');
+  const placeholder = document.getElementById('avatar-placeholder-modal');
+  const btnRemover = document.getElementById('btn-remover-foto');
+  const input = document.getElementById('input-foto-jogador');
+  input.value = '';
+  secao.style.display = jogadorId ? '' : 'none'; // só mostra na edição
+  if (jogadorId && temFoto) {
+    preview.src = `/api/jogadores/${jogadorId}/foto?t=${Date.now()}`;
+    preview.style.display = '';
+    placeholder.style.display = 'none';
+    btnRemover.style.display = '';
+  } else {
+    preview.src = '';
+    preview.style.display = 'none';
+    placeholder.style.display = '';
+    btnRemover.style.display = 'none';
+  }
+}
+
+function previewFoto(input) {
+  if (!input.files || !input.files[0]) return;
+  const preview = document.getElementById('preview-foto-jogador');
+  const placeholder = document.getElementById('avatar-placeholder-modal');
+  const btnRemover = document.getElementById('btn-remover-foto');
+  preview.src = URL.createObjectURL(input.files[0]);
+  preview.style.display = '';
+  placeholder.style.display = 'none';
+  btnRemover.style.display = '';
+  // Faz upload imediato
+  const jogadorId = document.getElementById('jogador-id').value;
+  if (!jogadorId) return;
+  const form = new FormData();
+  form.append('file', input.files[0]);
+  fetch(`/api/jogadores/${jogadorId}/foto`, {method:'POST', body:form, credentials:'include'})
+    .then(r => r.json())
+    .then(() => { toast('Foto salva!'); carregarJogadores(); })
+    .catch(() => toast('Erro ao salvar foto', 'danger'));
+}
+
+async function removerFotoJogador() {
+  const jogadorId = document.getElementById('jogador-id').value;
+  if (!jogadorId || !confirm('Remover foto?')) return;
+  try {
+    await api('DELETE', `/api/jogadores/${jogadorId}/foto`);
+    _resetFotoModal(jogadorId, false);
+    document.getElementById('avatar-placeholder-modal').textContent =
+      (document.getElementById('jogador-nome').value[0] || '?').toUpperCase();
+    toast('Foto removida');
+    carregarJogadores();
+  } catch(e) { toast('Erro ao remover foto', 'danger'); }
+}
+
 function abrirModalJogador() {
   document.getElementById('jogador-id').value = '';
   document.getElementById('jogador-nome').value = '';
@@ -2065,6 +2146,7 @@ function abrirModalJogador() {
   document.getElementById('jogador-telefone').value = '';
   document.getElementById('jogador-cpf').value = '';
   document.getElementById('jogador-rg').value = '';
+  _resetFotoModal(null, false);
   document.getElementById('modalJogadorTitulo').textContent = 'Novo jogador';
   new bootstrap.Modal('#modalJogador').show();
 }
@@ -2085,6 +2167,8 @@ async function editarJogador(id) {
   document.getElementById('jogador-telefone').value = j.telefone || '';
   document.getElementById('jogador-cpf').value = j.cpf || '';
   document.getElementById('jogador-rg').value = j.rg || '';
+  _resetFotoModal(j.id, j.tem_foto);
+  document.getElementById('avatar-placeholder-modal').textContent = j.nome[0].toUpperCase();
   document.getElementById('modalJogadorTitulo').textContent = 'Editar jogador';
   new bootstrap.Modal('#modalJogador').show();
 }
@@ -3382,8 +3466,10 @@ function cobrancaRenderCard() {
 
   card.innerHTML = `
     <div class="d-flex align-items-center gap-3 mb-3">
-      <div class="rounded-circle bg-primary text-white d-flex align-items-center justify-content-center flex-shrink-0"
-        style="width:52px;height:52px;font-size:1.4rem;font-weight:700">${j.nome[0].toUpperCase()}</div>
+      ${j.tem_foto
+        ? `<img src="/api/jogadores/${j.id}/foto" style="width:52px;height:52px;border-radius:50%;object-fit:cover;flex-shrink:0" />`
+        : `<div class="rounded-circle bg-primary text-white d-flex align-items-center justify-content-center flex-shrink-0" style="width:52px;height:52px;font-size:1.4rem;font-weight:700">${j.nome[0].toUpperCase()}</div>`
+      }
       <div>
         <h5 class="mb-1 fw-bold">${j.nome}</h5>
         <span class="badge ${j.tipo === 'mensalista' ? 'badge-mensalista' : 'badge-avulso'}">${j.tipo}</span>

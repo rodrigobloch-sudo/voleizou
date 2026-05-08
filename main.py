@@ -93,7 +93,7 @@ _PUBLICOS_EXATOS   = {"/", "/api/login", "/api/logout", "/api/me",
                       "/api/convite/link", "/cadastro-enviado",
                       "/api/recuperar-senha", "/api/verificar-reset", "/api/redefinir-senha"}
 _PUBLICOS_PREFIXO  = ("/static/", "/pagar/")
-_PUBLICOS_SUFIXO   = ("/info-pagamento",)
+_PUBLICOS_SUFIXO   = ("/info-pagamento", "/foto")
 
 class AuthMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
@@ -363,6 +363,32 @@ def _corrigir_tipo_pagamentos_evento():
         db.close()
 
 _corrigir_tipo_pagamentos_evento()
+
+def _migrar_foto_jogador():
+    """Adiciona colunas foto e foto_mimetype à tabela jogadores se ainda não existirem."""
+    db = SessionLocal()
+    try:
+        if is_sqlite:
+            try:
+                db.execute(__import__('sqlalchemy').text("ALTER TABLE jogadores ADD COLUMN foto BLOB"))
+                db.commit()
+            except Exception:
+                db.rollback()
+            try:
+                db.execute(__import__('sqlalchemy').text("ALTER TABLE jogadores ADD COLUMN foto_mimetype TEXT"))
+                db.commit()
+            except Exception:
+                db.rollback()
+        else:
+            db.execute(__import__('sqlalchemy').text("ALTER TABLE jogadores ADD COLUMN IF NOT EXISTS foto BYTEA"))
+            db.execute(__import__('sqlalchemy').text("ALTER TABLE jogadores ADD COLUMN IF NOT EXISTS foto_mimetype TEXT"))
+            db.commit()
+    except Exception:
+        db.rollback()
+    finally:
+        db.close()
+
+_migrar_foto_jogador()
 
 # ── Job de aniversário ────────────────────────────────────────────────────────
 
@@ -1106,9 +1132,50 @@ def listar_jogadores(tipo: Optional[str] = None, db: Session = Depends(get_db)):
             "cpf": _decrypt(j.cpf),
             "rg": _decrypt(j.rg),
             "criado_em": j.criado_em.isoformat() if j.criado_em else None,
+            "tem_foto": bool(j.foto),
         }
         for j in jogadores
     ]
+
+@app.post("/api/jogadores/{jogador_id}/foto")
+async def upload_foto(jogador_id: int, request: Request, file: UploadFile = File(...), db: Session = Depends(get_db)):
+    _exigir_admin(request, db)
+    j = db.query(models.Jogador).filter(models.Jogador.id == jogador_id).first()
+    if not j:
+        raise HTTPException(404, "Jogador não encontrado")
+    conteudo = await file.read()
+    if len(conteudo) > 5 * 1024 * 1024:
+        raise HTTPException(400, "Foto muito grande. Máximo 5 MB.")
+    # Redimensiona para no máximo 400x400 preservando proporção
+    from PIL import Image as _Img
+    import io as _io
+    img = _Img.open(_io.BytesIO(conteudo)).convert("RGB")
+    img.thumbnail((400, 400), _Img.LANCZOS)
+    buf = _io.BytesIO()
+    img.save(buf, format="JPEG", quality=85)
+    j.foto = buf.getvalue()
+    j.foto_mimetype = "image/jpeg"
+    db.commit()
+    return {"ok": True}
+
+@app.delete("/api/jogadores/{jogador_id}/foto")
+def remover_foto(jogador_id: int, request: Request, db: Session = Depends(get_db)):
+    _exigir_admin(request, db)
+    j = db.query(models.Jogador).filter(models.Jogador.id == jogador_id).first()
+    if not j:
+        raise HTTPException(404, "Jogador não encontrado")
+    j.foto = None
+    j.foto_mimetype = None
+    db.commit()
+    return {"ok": True}
+
+@app.get("/api/jogadores/{jogador_id}/foto")
+def servir_foto(jogador_id: int, db: Session = Depends(get_db)):
+    from fastapi.responses import Response as _Resp
+    j = db.query(models.Jogador).filter(models.Jogador.id == jogador_id).first()
+    if not j or not j.foto:
+        raise HTTPException(404, "Sem foto")
+    return _Resp(content=j.foto, media_type=j.foto_mimetype or "image/jpeg")
 
 def _checar_camisa(db, numero: int, excluir_id: int = None):
     """Lança 400 se a camisa já está em uso por outro jogador ativo."""

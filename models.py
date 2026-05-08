@@ -18,6 +18,8 @@ class Jogador(Base):
     rg              = Column(String, nullable=True)
     email           = Column(String, nullable=True, unique=True)
     ativo           = Column(Boolean, default=True)
+    foto            = Column(LargeBinary, nullable=True)
+    foto_mimetype   = Column(String, nullable=True)
     criado_em       = Column(DateTime, server_default=func.now())
 
     pagamentos            = relationship("Pagamento", back_populates="jogador", cascade="all, delete-orphan")

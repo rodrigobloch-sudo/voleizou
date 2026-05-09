@@ -2454,7 +2454,10 @@ function gerarListaJogo(jogoId) {
   const todos = [
     ...presentes.map(m => ({ ...m, _tipo: 'mensalista' })),
     ...avulsos.map(a => ({ ...a, _tipo: 'avulso' })),
-  ].sort((a, b) => _nomeExibicao(a).localeCompare(_nomeExibicao(b), 'pt-BR'));
+  ].sort((a, b) => {
+    const norm = s => _nomeExibicao(s).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+    return norm(a).localeCompare(norm(b));
+  });
 
   const valorAvulso = configValores?.valor_avulso ?? 35;
   const TOTAL = 16;

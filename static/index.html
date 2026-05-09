@@ -866,6 +866,30 @@
   </div>
 </div>
 
+<!-- Modal Lista do Jogo -->
+<div class="modal fade" id="modalListaJogo" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="bi bi-list-ol me-2"></i>Lista do jogo</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <pre id="lista-jogo-texto" class="bg-light rounded p-3 mb-0" style="white-space:pre-wrap;font-family:inherit;font-size:.95rem"></pre>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" data-bs-dismiss="modal">Fechar</button>
+        <button class="btn btn-outline-primary" onclick="copiarListaJogo()">
+          <i class="bi bi-clipboard me-1"></i>Copiar
+        </button>
+        <button class="btn btn-success" onclick="enviarListaWhatsApp()">
+          <i class="bi bi-whatsapp me-1"></i>WhatsApp
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- Modal Jogadores do Jogo -->
 <div class="modal fade" id="modalJogadores" tabindex="-1">
   <div class="modal-dialog">
@@ -2317,6 +2341,9 @@ function renderCardJogo(j) {
           <button class="btn btn-sm btn-outline-primary" onclick="editarJogadores(${j.id}, '${j.data}')">
             <i class="bi bi-people me-1"></i>Jogadores
           </button>
+          <button class="btn btn-sm btn-outline-secondary" title="Gerar lista" onclick="gerarListaJogo(${j.id})">
+            <i class="bi bi-list-ol"></i>
+          </button>
           ${tipoUsuarioLogado === 'admin' ? `
           <button class="btn btn-sm btn-outline-secondary" onclick="editarJogo(${j.id})">
             <i class="bi bi-pencil"></i>
@@ -2407,6 +2434,63 @@ function abrirModalJogo() {
   atualizarValorCabeca();
   carregarLocaisSelect();
   new bootstrap.Modal('#modalJogo').show();
+}
+
+function _nomeExibicao(j) {
+  if (j.apelido) return j.apelido;
+  const partes = (j.nome || '').trim().split(/\s+/);
+  if (partes.length === 1) return partes[0];
+  return partes[0] + ' ' + partes[partes.length - 1][0] + '.';
+}
+
+function gerarListaJogo(jogoId) {
+  const jogo = todosJogos.find(j => j.id === jogoId);
+  if (!jogo) return;
+
+  const ausentes = new Set(jogo.mensalistas_ausentes || []);
+  const presentes = mensalistasAtivos.filter(m => !ausentes.has(m.id));
+  const avulsos   = jogo.avulsos || [];
+
+  const todos = [
+    ...presentes.map(m => ({ ...m, _tipo: 'mensalista' })),
+    ...avulsos.map(a => ({ ...a, _tipo: 'avulso' })),
+  ].sort((a, b) => _nomeExibicao(a).localeCompare(_nomeExibicao(b), 'pt-BR'));
+
+  const valorAvulso = configValores?.valor_avulso ?? 35;
+  const TOTAL = 16;
+
+  const titulo = [jogo.categoria, fmtDate(jogo.data)].filter(Boolean).join(' - ');
+  const local  = [jogo.local_nome, jogo.endereco].filter(Boolean).join(' — ');
+
+  let linhas = [`🏐 ${titulo}`];
+  if (local) linhas.push(`📍 ${local}`);
+  linhas.push('');
+
+  linhas.push('👥 Mensalistas');
+  todos.forEach((j, i) => {
+    linhas.push(`${i + 1}. ${_nomeExibicao(j)}`);
+  });
+
+  if (todos.length < TOTAL) {
+    linhas.push('');
+    linhas.push(`👥 Avulsos - R$ ${Number(valorAvulso).toFixed(0)},00`);
+    for (let n = todos.length + 1; n <= TOTAL; n++) {
+      linhas.push(`${n}.`);
+    }
+  }
+
+  document.getElementById('lista-jogo-texto').textContent = linhas.join('\n');
+  new bootstrap.Modal('#modalListaJogo').show();
+}
+
+function copiarListaJogo() {
+  const texto = document.getElementById('lista-jogo-texto').textContent;
+  navigator.clipboard.writeText(texto).then(() => toast('Lista copiada!')).catch(() => toast('Erro ao copiar', 'danger'));
+}
+
+function enviarListaWhatsApp() {
+  const texto = document.getElementById('lista-jogo-texto').textContent;
+  abrirUrl(`https://wa.me/?text=${encodeURIComponent(texto)}`);
 }
 
 function editarJogo(id) {

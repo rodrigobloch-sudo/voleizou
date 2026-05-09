@@ -682,6 +682,10 @@
           <input type="text" class="form-control" id="jogador-nome" />
         </div>
         <div class="mb-3">
+          <label class="form-label">Apelido <small class="text-muted">(como é chamado no grupo)</small></label>
+          <input type="text" class="form-control" id="jogador-apelido" placeholder="Ex: Rodrigão, Bloch, Bruxo..." />
+        </div>
+        <div class="mb-3">
           <label class="form-label">Modalidade *</label>
           <select class="form-select" id="jogador-tipo">
             <option value="mensalista">Mensalista</option>
@@ -2019,7 +2023,10 @@ function renderJogadores() {
             ? `<img src="/api/jogadores/${j.id}/foto" style="width:32px;height:32px;border-radius:50%;object-fit:cover;flex-shrink:0" />`
             : `<div style="width:32px;height:32px;border-radius:50%;background:#2563eb;color:#fff;display:flex;align-items:center;justify-content:center;font-size:.85rem;font-weight:700;flex-shrink:0">${j.nome[0].toUpperCase()}</div>`
           }
-          <strong>${j.nome}</strong>
+          <div>
+            <strong>${j.nome}</strong>
+            ${j.apelido ? `<br><small class="text-muted">${j.apelido}</small>` : ''}
+          </div>
         </div>
       </td>
       <td><span class="badge ${j.tipo === 'mensalista' ? 'badge-mensalista' : 'badge-avulso'}">${j.tipo}</span></td>
@@ -2119,6 +2126,7 @@ function abrirModalJogador() {
   document.getElementById('jogador-tipo').value = 'mensalista';
   document.getElementById('jogador-tipo').disabled = false;
   document.getElementById('jogador-tipo-aviso').classList.add('d-none');
+  document.getElementById('jogador-apelido').value = '';
   document.getElementById('jogador-email').value = '';
   setPosicoes('');
   document.getElementById('jogador-camisa').value = '';
@@ -2136,6 +2144,7 @@ async function editarJogador(id) {
   if (!j) return;
   document.getElementById('jogador-id').value = j.id;
   document.getElementById('jogador-nome').value = j.nome;
+  document.getElementById('jogador-apelido').value = j.apelido || '';
   document.getElementById('jogador-tipo').value = j.tipo;
   // Tipo é read-only na edição — só admin pode mudar via botão específico
   document.getElementById('jogador-tipo').disabled = true;
@@ -2160,6 +2169,7 @@ async function salvarJogador() {
   const emailVal  = document.getElementById('jogador-email').value.trim();
   const data = {
     nome:     document.getElementById('jogador-nome').value.trim(),
+    apelido:  document.getElementById('jogador-apelido').value.trim() || null,
     email:    emailVal || null,
     telefone: document.getElementById('jogador-telefone').value.trim() || null,
     posicao:  getPosicoes(),

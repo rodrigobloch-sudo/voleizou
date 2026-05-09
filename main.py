@@ -114,6 +114,7 @@ def _migrar():
         from sqlalchemy import text as _text
         migrações = [
             ("entradas",  "id",              "INTEGER"),  # força criação via models
+            ("jogadores", "apelido",          "VARCHAR"),
             ("jogadores", "posicao",         "VARCHAR"),
             ("jogadores", "numero_camisa",    "INTEGER"),
             ("jogadores", "data_nascimento",  "DATE"),
@@ -1018,6 +1019,7 @@ def put_valores(data: ValoresUpdate, db: Session = Depends(get_db)):
 class JogadorCreate(BaseModel):
     nome: str
     tipo: str
+    apelido: Optional[str] = None
     email: Optional[str] = None
     telefone: Optional[str] = None
     posicao: Optional[str] = None
@@ -1028,6 +1030,7 @@ class JogadorCreate(BaseModel):
 
 class JogadorUpdate(BaseModel):
     nome: Optional[str] = None
+    apelido: Optional[str] = None
     # tipo não pode ser alterado via PUT — usar PATCH /api/jogadores/{id}/tipo (admin only)
     email: Optional[str] = None
     telefone: Optional[str] = None
@@ -1125,7 +1128,7 @@ def listar_jogadores(tipo: Optional[str] = None, db: Session = Depends(get_db)):
     jogadores = q.order_by(models.Jogador.nome).all()
     return [
         {
-            "id": j.id, "nome": j.nome, "tipo": j.tipo,
+            "id": j.id, "nome": j.nome, "apelido": j.apelido, "tipo": j.tipo,
             "email": j.email,
             "telefone": j.telefone, "ativo": j.ativo,
             "posicao": j.posicao,
@@ -1210,7 +1213,7 @@ def criar_jogador(data: JogadorCreate, db: Session = Depends(get_db)):
         _marcar_ausente_em_jogos_fechados(db, j.id)
     db.commit()
     db.refresh(j)
-    return {"id": j.id, "nome": j.nome, "tipo": j.tipo, "email": j.email,
+    return {"id": j.id, "nome": j.nome, "apelido": j.apelido, "tipo": j.tipo, "email": j.email,
             "telefone": j.telefone, "ativo": j.ativo,
             "posicao": j.posicao, "numero_camisa": j.numero_camisa,
             "data_nascimento": j.data_nascimento.isoformat() if j.data_nascimento else None,
@@ -1228,7 +1231,7 @@ def atualizar_jogador(jogador_id: int, data: JogadorUpdate, db: Session = Depend
             value = _encrypt(value)
         setattr(j, field, value)
     db.commit()
-    return {"id": j.id, "nome": j.nome, "tipo": j.tipo, "email": j.email,
+    return {"id": j.id, "nome": j.nome, "apelido": j.apelido, "tipo": j.tipo, "email": j.email,
             "telefone": j.telefone, "ativo": j.ativo,
             "posicao": j.posicao, "numero_camisa": j.numero_camisa,
             "data_nascimento": j.data_nascimento.isoformat() if j.data_nascimento else None,

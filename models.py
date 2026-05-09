@@ -9,6 +9,7 @@ class Jogador(Base):
 
     id              = Column(Integer, primary_key=True, index=True)
     nome            = Column(String, nullable=False)
+    apelido         = Column(String, nullable=True)
     tipo            = Column(String, nullable=False)   # "mensalista" | "avulso"
     telefone        = Column(String, nullable=True)
     posicao         = Column(String, nullable=True)    # pode ser múltipla, ex: "Central,Ponteiro"

@@ -1586,7 +1586,7 @@ def deletar_local(local_id: int, request: Request, db: Session = Depends(get_db)
 # ── Jogos ─────────────────────────────────────────────────────────────────────
 
 def _jogo_dict(jogo) -> dict:
-    avulsos = [{"id": p.jogador.id, "nome": p.jogador.nome, "participacao_id": p.id}
+    avulsos = [{"id": p.jogador.id, "nome": p.jogador.nome, "apelido": p.jogador.apelido, "participacao_id": p.id}
                for p in jogo.participacoes]
     ausentes = [int(x) for x in (jogo.mensalistas_ausentes or '').split(',') if x.strip()]
     return {

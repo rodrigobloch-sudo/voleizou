@@ -213,6 +213,7 @@
       <a href="#" data-page="config-usuarios"><i class="bi bi-people-fill"></i> Usuários</a>
       <a href="#" data-page="config-permissoes"><i class="bi bi-shield-lock"></i> Permissões</a>
       <a href="#" data-page="config-valores"><i class="bi bi-currency-dollar"></i> Valores</a>
+      <a href="#" data-page="config-categorias"><i class="bi bi-tags"></i> Categorias</a>
     </div>
   </nav>
   <div style="padding: 12px 16px; border-top: 1px solid #334155;">
@@ -663,6 +664,58 @@
     </div>
   </div>
 
+  <!-- ── CONFIG: CATEGORIAS ── -->
+  <div id="page-config-categorias" class="page">
+    <div class="mb-4">
+      <h5 class="fw-bold mb-1"><i class="bi bi-tags me-2 text-primary"></i>Categorias</h5>
+      <p class="text-muted small mb-0">Gerencie as categorias disponíveis em Jogos, Saídas e Entradas.</p>
+    </div>
+    <div class="row g-4">
+      <div class="col-md-4">
+        <div class="card h-100">
+          <div class="card-header fw-semibold"><i class="bi bi-calendar-week me-2 text-primary"></i>Jogos</div>
+          <div class="card-body p-0">
+            <ul class="list-group list-group-flush" id="cat-list-jogo"></ul>
+          </div>
+          <div class="card-footer">
+            <div class="input-group input-group-sm">
+              <input type="text" class="form-control" id="cat-input-jogo" placeholder="Nova categoria..." maxlength="60" />
+              <button class="btn btn-primary" onclick="adicionarCategoria('jogo')"><i class="bi bi-plus-lg"></i></button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="col-md-4">
+        <div class="card h-100">
+          <div class="card-header fw-semibold"><i class="bi bi-arrow-up-circle me-2 text-danger"></i>Saídas</div>
+          <div class="card-body p-0">
+            <ul class="list-group list-group-flush" id="cat-list-saida"></ul>
+          </div>
+          <div class="card-footer">
+            <div class="input-group input-group-sm">
+              <input type="text" class="form-control" id="cat-input-saida" placeholder="Nova categoria..." maxlength="60" />
+              <button class="btn btn-primary" onclick="adicionarCategoria('saida')"><i class="bi bi-plus-lg"></i></button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="col-md-4">
+        <div class="card h-100">
+          <div class="card-header fw-semibold"><i class="bi bi-arrow-down-circle me-2 text-success"></i>Entradas</div>
+          <div class="card-body p-0">
+            <ul class="list-group list-group-flush" id="cat-list-entrada"></ul>
+          </div>
+          <div class="card-footer">
+            <div class="input-group input-group-sm">
+              <input type="text" class="form-control" id="cat-input-entrada" placeholder="Nova categoria..." maxlength="60" />
+              <button class="btn btn-primary" onclick="adicionarCategoria('entrada')"><i class="bi bi-plus-lg"></i></button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
 </div><!-- /main -->
 
 <!-- ── MODAIS ── -->
@@ -780,10 +833,6 @@
             <label class="form-label">Categoria</label>
             <select class="form-select" id="jogo-categoria" onchange="jogoCategoriaMudou()">
               <option value="">— Selecione —</option>
-              <option>Jogo Semanal</option>
-              <option>Amistoso</option>
-              <option>Torneios Diversos</option>
-              <option>Liga Semestral/Anual</option>
             </select>
           </div>
           <div class="col-5">
@@ -1072,14 +1121,6 @@
           <label class="form-label">Categoria</label>
           <select class="form-select" id="saida-cat">
             <option value="">Selecione</option>
-            <option>Aluguel de quadra</option>
-            <option>Pagamento Técnico</option>
-            <option>Amistoso</option>
-            <option>Inscrição Liga</option>
-            <option>Inscrição Torneio</option>
-            <option>Bolas</option>
-            <option>Equipamentos</option>
-            <option>Outros</option>
           </select>
         </div>
         <div class="mb-3">
@@ -1121,10 +1162,6 @@
           <label class="form-label">Categoria</label>
           <select class="form-select" id="entrada-cat">
             <option value="">Selecione</option>
-            <option>Patrocínio</option>
-            <option>Prêmios</option>
-            <option>Doações</option>
-            <option>Outros</option>
           </select>
         </div>
         <div class="mb-3">
@@ -1450,7 +1487,8 @@ function navegarPara(page, pushHistory = true) {
   if (page === 'pendentes')         carregarPendentes();
   if (page === 'config-usuarios')   carregarUsuarios();
   if (page === 'config-permissoes') carregarPermissoes();
-  if (page === 'config-valores')    carregarConfigValores();
+  if (page === 'config-valores')     carregarConfigValores();
+  if (page === 'config-categorias') carregarConfigCategorias();
   if (page === 'pendencias')        carregarPendencias();
   if (page === 'calendario')        carregarCalendario();
 }
@@ -3759,7 +3797,8 @@ const MENU_NOMES = {
   pendencias:      'Pendências',
   pendentes:       'Aprovações',
   config:          'Configurações',
-  'config-valores':'Valores (Jogo Semanal)',
+  'config-valores':    'Valores (Jogo Semanal)',
+  'config-categorias': 'Categorias',
 };
 
 async function carregarPermissoes() {
@@ -4004,6 +4043,117 @@ async function salvarConfigValores() {
   } catch(e) { toast(e.message, 'danger'); }
 }
 
+// ── Categorias ───────────────────────────────────────────────────────────────
+let _categorias = { jogo: [], saida: [], entrada: [] };
+
+function _preencherDropdown(selectId, tipo, valorAtual) {
+  const sel = document.getElementById(selectId);
+  if (!sel) return;
+  const prev = valorAtual !== undefined ? valorAtual : sel.value;
+  sel.innerHTML = '<option value="">— Selecione —</option>';
+  (_categorias[tipo] || []).forEach(c => {
+    const opt = document.createElement('option');
+    opt.value = c.nome;
+    opt.textContent = c.nome;
+    if (c.nome === prev) opt.selected = true;
+    sel.appendChild(opt);
+  });
+}
+
+function _atualizarDropdowns() {
+  _preencherDropdown('jogo-categoria', 'jogo');
+  _preencherDropdown('saida-cat',      'saida');
+  _preencherDropdown('entrada-cat',    'entrada');
+}
+
+async function carregarCategorias() {
+  try {
+    _categorias = await api('GET', '/api/categorias');
+    _atualizarDropdowns();
+  } catch(e) { /* silencioso — dropdowns ficam vazios se API falhar */ }
+}
+
+function _renderCatLista(tipo) {
+  const ul = document.getElementById(`cat-list-${tipo}`);
+  if (!ul) return;
+  const items = _categorias[tipo] || [];
+  if (!items.length) {
+    ul.innerHTML = '<li class="list-group-item text-muted small">Nenhuma categoria.</li>';
+    return;
+  }
+  ul.innerHTML = items.map(c => `
+    <li class="list-group-item d-flex justify-content-between align-items-center px-3 py-2" id="cat-item-${c.id}">
+      <span class="cat-nome-text" id="cat-text-${c.id}">${c.nome}</span>
+      <input type="text" class="form-control form-control-sm d-none cat-nome-input" id="cat-input-edit-${c.id}"
+             value="${c.nome}" maxlength="60"
+             onkeydown="if(event.key==='Enter')salvarEdicaoCategoria(${c.id},'${tipo}');if(event.key==='Escape')cancelarEdicaoCategoria(${c.id})" />
+      <div class="d-flex gap-1 ms-2">
+        <button class="btn btn-sm btn-outline-secondary py-0 px-1" onclick="iniciarEdicaoCategoria(${c.id})" title="Editar"><i class="bi bi-pencil"></i></button>
+        <button class="btn btn-sm btn-outline-danger py-0 px-1" onclick="excluirCategoria(${c.id},'${tipo}')" title="Excluir"><i class="bi bi-trash"></i></button>
+      </div>
+    </li>`).join('');
+}
+
+async function carregarConfigCategorias() {
+  await carregarCategorias();
+  _renderCatLista('jogo');
+  _renderCatLista('saida');
+  _renderCatLista('entrada');
+}
+
+function iniciarEdicaoCategoria(id) {
+  document.getElementById(`cat-text-${id}`).classList.add('d-none');
+  const inp = document.getElementById(`cat-input-edit-${id}`);
+  inp.classList.remove('d-none');
+  inp.focus();
+  inp.select();
+}
+
+function cancelarEdicaoCategoria(id) {
+  document.getElementById(`cat-text-${id}`).classList.remove('d-none');
+  document.getElementById(`cat-input-edit-${id}`).classList.add('d-none');
+}
+
+async function salvarEdicaoCategoria(id, tipo) {
+  const inp = document.getElementById(`cat-input-edit-${id}`);
+  const nome = inp.value.trim();
+  if (!nome) { toast('Nome não pode ser vazio', 'warning'); return; }
+  try {
+    const updated = await api('PUT', `/api/categorias/${id}`, { nome });
+    const cat = _categorias[tipo].find(c => c.id === id);
+    if (cat) cat.nome = updated.nome;
+    _renderCatLista(tipo);
+    _atualizarDropdowns();
+    toast('Categoria atualizada!');
+  } catch(e) { toast(e.message || 'Erro ao atualizar', 'danger'); }
+}
+
+async function excluirCategoria(id, tipo) {
+  if (!confirm('Excluir esta categoria?')) return;
+  try {
+    await api('DELETE', `/api/categorias/${id}`);
+    _categorias[tipo] = _categorias[tipo].filter(c => c.id !== id);
+    _renderCatLista(tipo);
+    _atualizarDropdowns();
+    toast('Categoria excluída!');
+  } catch(e) { toast(e.message || 'Erro ao excluir', 'danger'); }
+}
+
+async function adicionarCategoria(tipo) {
+  const inp = document.getElementById(`cat-input-${tipo}`);
+  const nome = inp.value.trim();
+  if (!nome) { toast('Digite o nome da categoria', 'warning'); return; }
+  try {
+    const nova = await api('POST', '/api/categorias', { tipo, nome });
+    _categorias[tipo].push(nova);
+    _categorias[tipo].sort((a,b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+    _renderCatLista(tipo);
+    _atualizarDropdowns();
+    inp.value = '';
+    toast('Categoria adicionada!');
+  } catch(e) { toast(e.message || 'Erro ao adicionar', 'danger'); }
+}
+
 // ── Autenticação ─────────────────────────────────────────────────────────────
 async function fazerLogin() {
   const usuario = document.getElementById('login-usuario').value.trim();
@@ -4061,10 +4211,11 @@ async function iniciarApp(perms, tipo, jogadorId, publicUrl) {
       if (el) el.classList.add('d-none');
     });
   }
-  // Carrega config de valores antes de qualquer cálculo
+  // Carrega config de valores e categorias antes de qualquer cálculo
   try {
     configValores = await api('GET', '/api/config/valores');
   } catch(e) { /* usa defaults */ }
+  await carregarCategorias();
 
   // Restaura a última página visitada (se o usuário tiver permissão)
   const paginaSalva = (() => {

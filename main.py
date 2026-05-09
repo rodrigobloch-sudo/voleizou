@@ -28,7 +28,7 @@ ENCRYPTION_KEY  = os.getenv("ENCRYPTION_KEY",  "")
 MENUS_SLUGS = [
     "dashboard", "jogadores", "jogos", "calendario", "pagamentos",
     "saidas", "entradas", "caixa", "pendencias", "pendentes", "config",
-    "config-valores",
+    "config-valores", "config-categorias",
 ]
 
 # Chaves de configuração com seus defaults
@@ -235,6 +235,28 @@ def _seed_config():
         db.close()
 
 _seed_config()
+
+_CATEGORIAS_PADRAO = {
+    "jogo":    ["Jogo Semanal", "Amistoso", "Torneios Diversos", "Liga Semestral/Anual"],
+    "saida":   ["Aluguel de quadra", "Pagamento Técnico", "Amistoso", "Inscrição Liga",
+                "Inscrição Torneio", "Bolas", "Equipamentos", "Outros"],
+    "entrada": ["Patrocínio", "Prêmios", "Doações", "Outros"],
+}
+
+def _seed_categorias():
+    db = SessionLocal()
+    try:
+        for tipo, nomes in _CATEGORIAS_PADRAO.items():
+            for nome in nomes:
+                if not db.query(models.Categoria).filter_by(tipo=tipo, nome=nome).first():
+                    db.add(models.Categoria(tipo=tipo, nome=nome))
+        db.commit()
+    except Exception:
+        db.rollback()
+    finally:
+        db.close()
+
+_seed_categorias()
 
 def _reset_admin_pass():
     """Se RESET_ADMIN_PASS estiver definido, redefine a senha do admin e remove a var."""
@@ -1012,6 +1034,65 @@ def put_valores(data: ValoresUpdate, db: Session = Depends(get_db)):
             db.add(models.Configuracao(chave=chave, valor=str(valor)))
     db.commit()
     return _get_config(db)
+
+
+# ── Categorias ────────────────────────────────────────────────────────────────
+
+class CategoriaCreate(BaseModel):
+    tipo: str
+    nome: str
+
+class CategoriaUpdate(BaseModel):
+    nome: str
+
+def _cat_dict(c: models.Categoria):
+    return {"id": c.id, "tipo": c.tipo, "nome": c.nome}
+
+@app.get("/api/categorias")
+def listar_categorias(db: Session = Depends(get_db)):
+    rows = db.query(models.Categoria).order_by(models.Categoria.tipo, models.Categoria.nome).all()
+    result = {"jogo": [], "saida": [], "entrada": []}
+    for c in rows:
+        if c.tipo in result:
+            result[c.tipo].append(_cat_dict(c))
+    return result
+
+@app.post("/api/categorias", status_code=201)
+def criar_categoria(data: CategoriaCreate, db: Session = Depends(get_db)):
+    if data.tipo not in ("jogo", "saida", "entrada"):
+        raise HTTPException(400, "tipo inválido")
+    if not data.nome.strip():
+        raise HTTPException(400, "nome obrigatório")
+    exists = db.query(models.Categoria).filter_by(tipo=data.tipo, nome=data.nome.strip()).first()
+    if exists:
+        raise HTTPException(409, "categoria já existe")
+    c = models.Categoria(tipo=data.tipo, nome=data.nome.strip())
+    db.add(c)
+    db.commit()
+    db.refresh(c)
+    return _cat_dict(c)
+
+@app.put("/api/categorias/{cat_id}")
+def atualizar_categoria(cat_id: int, data: CategoriaUpdate, db: Session = Depends(get_db)):
+    c = db.query(models.Categoria).filter_by(id=cat_id).first()
+    if not c:
+        raise HTTPException(404, "categoria não encontrada")
+    if not data.nome.strip():
+        raise HTTPException(400, "nome obrigatório")
+    exists = db.query(models.Categoria).filter_by(tipo=c.tipo, nome=data.nome.strip()).first()
+    if exists and exists.id != cat_id:
+        raise HTTPException(409, "já existe categoria com esse nome")
+    c.nome = data.nome.strip()
+    db.commit()
+    return _cat_dict(c)
+
+@app.delete("/api/categorias/{cat_id}", status_code=204)
+def deletar_categoria(cat_id: int, db: Session = Depends(get_db)):
+    c = db.query(models.Categoria).filter_by(id=cat_id).first()
+    if not c:
+        raise HTTPException(404, "categoria não encontrada")
+    db.delete(c)
+    db.commit()
 
 
 # ── Schemas ───────────────────────────────────────────────────────────────────

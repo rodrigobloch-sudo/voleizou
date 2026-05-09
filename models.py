@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Float, Boolean, Date, DateTime, ForeignKey, UniqueConstraint, LargeBinary
+from sqlalchemy import Column, Integer, String, Float, Boolean, Date, DateTime, ForeignKey, UniqueConstraint, LargeBinary, Index
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from database import Base
@@ -152,6 +152,17 @@ class Pendencia(Base):
 
     jogador = relationship("Jogador", back_populates="pendencias_financeiras")
     jogo    = relationship("Jogo",    back_populates="pendencias")
+
+
+class Categoria(Base):
+    """Categorias configuráveis por tipo (jogo | saida | entrada)."""
+    __tablename__ = "categorias"
+    __table_args__ = (UniqueConstraint("tipo", "nome"),)
+
+    id        = Column(Integer, primary_key=True, index=True)
+    tipo      = Column(String, nullable=False)   # "jogo" | "saida" | "entrada"
+    nome      = Column(String, nullable=False)
+    criado_em = Column(DateTime, server_default=func.now())
 
 
 class Local(Base):

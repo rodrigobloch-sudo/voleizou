@@ -1356,6 +1356,9 @@ def reativar_jogador(jogador_id: int, db: Session = Depends(get_db)):
     if not j:
         raise HTTPException(404, "Jogador não encontrado")
     j.ativo = True
+    db.flush()
+    if j.tipo == "mensalista":
+        _marcar_ausente_em_jogos_fechados(db, j.id)
     db.commit()
     return {"ok": True}
 
@@ -1466,6 +1469,8 @@ def aprovar_cadastro(sol_id: int, request: Request, db: Session = Depends(get_db
     )
     db.add(j)
     db.flush()
+    if j.tipo == "mensalista":
+        _marcar_ausente_em_jogos_fechados(db, j.id)
 
     username = _gerar_usuario(sol.email, db, sol.nome)
     senha_temp = bcrypt.hashpw(os.urandom(32).hex().encode(), bcrypt.gensalt()).decode()

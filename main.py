@@ -2027,34 +2027,35 @@ def dashboard(mes: Optional[int] = None, ano: Optional[int] = None, db: Session 
         extract("year", models.Jogo.data) == ano,
     ).all()
 
-    avulsos = db.query(models.Jogador).filter(
-        models.Jogador.tipo == "avulso",
-        models.Jogador.ativo == True
-    ).order_by(models.Jogador.nome).all()
+    # Pendências abertas de evento para avulsos — mesma fonte do menu Pendências
+    pends_avulso = (
+        db.query(models.Pendencia)
+        .join(models.Jogador, models.Pendencia.jogador_id == models.Jogador.id)
+        .filter(
+            models.Pendencia.tipo == "evento",
+            models.Pendencia.quitado == False,
+            models.Jogador.tipo == "avulso",
+            models.Jogador.ativo == True,
+        )
+        .all()
+    )
+    avulso_map: dict = {}
+    for pend in pends_avulso:
+        j = pend.jogador
+        entry = avulso_map.setdefault(j.id, {
+            "id": j.id, "nome": j.nome, "jogos": 0,
+            "valor_devido": 0.0, "valor_pago": 0.0, "pendente": 0.0,
+        })
+        entry["jogos"] += 1
+        entry["valor_devido"] = round(entry["valor_devido"] + pend.valor, 2)
+        entry["pendente"]     = round(entry["pendente"]     + pend.valor, 2)
+    avulsos_resumo = sorted(avulso_map.values(), key=lambda x: x["nome"])
 
     pagamentos_avulso_mes = db.query(models.Pagamento).filter(
         models.Pagamento.tipo == "avulso",
         extract("month", models.Pagamento.data_pagamento) == mes,
         extract("year", models.Pagamento.data_pagamento) == ano,
     ).all()
-
-    avulsos_resumo = []
-    for av in avulsos:
-        jogos_count = sum(
-            1 for jogo in jogos_mes
-            if any(p.jogador_id == av.id for p in jogo.participacoes)
-        )
-        valor_pago = sum(p.valor for p in pagamentos_avulso_mes if p.jogador_id == av.id)
-        valor_devido = jogos_count * VALOR_AVULSO
-        if jogos_count > 0 or valor_pago > 0:
-            avulsos_resumo.append({
-                "id": av.id,
-                "nome": av.nome,
-                "jogos": jogos_count,
-                "valor_devido": valor_devido,
-                "valor_pago": valor_pago,
-                "pendente": max(0, valor_devido - valor_pago),
-            })
 
     # Financeiro
     total_entradas_mensalidade = sum(

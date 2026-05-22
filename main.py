@@ -624,10 +624,41 @@ def _status_efetivo(data_jogo, status_raw: str | None) -> str:
     return s
 
 def _gerar_pendencias_jogo(db: Session, jogo: models.Jogo):
-    """Cria/atualiza Pendencia para cada participante de um jogo não-semanal com valor."""
+    """Cria/atualiza Pendencia para participantes de um jogo confirmado/realizado."""
+    from sqlalchemy.exc import IntegrityError
     cat = (jogo.categoria or "").strip()
-    # Jogo Semanal não gera pendências individuais (coberto pela mensalidade)
-    if not jogo.valor or cat == "Jogo Semanal":
+
+    if cat == "Jogo Semanal":
+        # Semanal: só avulsos pagam (mensalistas cobertos pela mensalidade)
+        avulsos = [p.jogador for p in jogo.participacoes]
+        ids_avulsos = {a.id for a in avulsos}
+        for pend in db.query(models.Pendencia).filter_by(jogo_id=jogo.id).all():
+            if pend.jogador_id not in ids_avulsos:
+                db.delete(pend)
+        if not avulsos:
+            return
+        cfg = _get_config(db)
+        valor_avulso = cfg["valor_avulso"]
+        descricao = f"Jogo Semanal — {jogo.data.strftime('%d/%m/%Y')}"
+        for a in avulsos:
+            existe = db.query(models.Pendencia).filter_by(jogador_id=a.id, jogo_id=jogo.id).first()
+            if existe:
+                existe.valor = valor_avulso
+                existe.descricao = descricao
+                continue
+            db.add(models.Pendencia(
+                jogador_id=a.id, jogo_id=jogo.id, tipo="evento",
+                descricao=descricao, valor=valor_avulso,
+                referencia=jogo.data.isoformat(),
+            ))
+        try:
+            db.flush()
+        except IntegrityError:
+            db.rollback()
+        return
+
+    # Eventos não-semanais: valor obrigatório, divide entre todos os presentes
+    if not jogo.valor:
         return
     ausentes = [int(x) for x in (jogo.mensalistas_ausentes or "").split(",") if x.strip()]
     from sqlalchemy import or_ as _or2
@@ -654,20 +685,17 @@ def _gerar_pendencias_jogo(db: Session, jogo: models.Jogo):
         return
     valor_pessoa = round(jogo.valor / n, 2)
     descricao = f"{cat or 'Evento'} — {jogo.data.strftime('%d/%m/%Y')}"
-    from sqlalchemy.exc import IntegrityError
     for j in participantes:
         existe = db.query(models.Pendencia).filter_by(jogador_id=j.id, jogo_id=jogo.id).first()
         if existe:
-            existe.valor = valor_pessoa   # atualiza se participantes mudaram
+            existe.valor = valor_pessoa
             existe.descricao = descricao
             continue
-        p = models.Pendencia(
+        db.add(models.Pendencia(
             jogador_id=j.id, jogo_id=jogo.id, tipo="evento",
-            descricao=descricao,
-            valor=valor_pessoa,
+            descricao=descricao, valor=valor_pessoa,
             referencia=jogo.data.isoformat(),
-        )
-        db.add(p)
+        ))
     try:
         db.flush()
     except IntegrityError:
@@ -678,13 +706,13 @@ def _regenerar_pendencias_todos_eventos(db: Session):
     """Retroativamente gera pendências para jogos confirmados/realizados que ainda não as têm."""
     jogos = db.query(models.Jogo).filter(
         models.Jogo.status.in_(["Confirmado", "Realizado"]),
-        models.Jogo.valor.isnot(None),
-        models.Jogo.valor > 0,
     ).all()
     for jogo in jogos:
         cat = (jogo.categoria or "").strip()
+        # Semanal: só processa se há avulsos registrados
         if cat == "Jogo Semanal":
-            continue
+            if not jogo.participacoes:
+                continue
         _gerar_pendencias_jogo(db, jogo)
     db.commit()
 
@@ -1780,6 +1808,9 @@ def adicionar_avulso(jogo_id: int, data: ParticipacaoCreate, request: Request, d
 @app.delete("/api/jogos/{jogo_id}/participacoes/{jogador_id}")
 def remover_avulso(jogo_id: int, jogador_id: int, request: Request, db: Session = Depends(get_db)):
     _exigir_admin(request, db)
+    jogo = db.query(models.Jogo).filter(models.Jogo.id == jogo_id).first()
+    if not jogo:
+        raise HTTPException(404, "Jogo não encontrado")
     p = db.query(models.ParticipacaoAvulso).filter(
         models.ParticipacaoAvulso.jogo_id == jogo_id,
         models.ParticipacaoAvulso.jogador_id == jogador_id
@@ -2544,6 +2575,39 @@ def regenerar_pendencias(request: Request, db: Session = Depends(get_db)):
     """Admin: regenera pendências de eventos para todos os jogos confirmados/realizados."""
     _exigir_admin(request, db)
     _regenerar_pendencias_todos_eventos(db)
+    return {"ok": True}
+
+class PendenciaManualCreate(BaseModel):
+    jogador_id: int
+    valor: float
+    descricao: str
+    jogo_id: Optional[int] = None
+    referencia: Optional[str] = None
+
+@app.post("/api/pendencias/manual", status_code=201)
+def criar_pendencia_manual(data: PendenciaManualCreate, request: Request, db: Session = Depends(get_db)):
+    """Admin: cria uma pendência avulsa manualmente para um jogador."""
+    _exigir_admin(request, db)
+    jogador = db.query(models.Jogador).filter(models.Jogador.id == data.jogador_id).first()
+    if not jogador:
+        raise HTTPException(404, "Jogador não encontrado")
+    if data.jogo_id:
+        jogo = db.query(models.Jogo).filter(models.Jogo.id == data.jogo_id).first()
+        if not jogo:
+            raise HTTPException(404, "Jogo não encontrado")
+        referencia = data.referencia or jogo.data.isoformat()
+    else:
+        referencia = data.referencia or date.today().isoformat()
+    p = models.Pendencia(
+        jogador_id=data.jogador_id,
+        jogo_id=data.jogo_id,
+        tipo="evento",
+        descricao=data.descricao,
+        valor=data.valor,
+        referencia=referencia,
+    )
+    db.add(p)
+    db.commit()
     return {"ok": True}
 
 @app.post("/api/pendentes/{pagamento_id}/aprovar")

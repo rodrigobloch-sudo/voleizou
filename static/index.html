@@ -626,6 +626,7 @@
       <div class="d-flex gap-2">
         <button class="btn btn-outline-secondary btn-sm" onclick="carregarPendencias()"><i class="bi bi-arrow-clockwise"></i></button>
         <button class="btn btn-outline-primary btn-sm" id="btn-regenerar-pendencias" onclick="regenerarPendencias()" title="Recalcular pendências de eventos"><i class="bi bi-lightning me-1"></i>Recalcular</button>
+        <button class="btn btn-outline-success btn-sm" id="btn-pendencia-manual" onclick="abrirPendenciaManual()" title="Lançar pendência manualmente"><i class="bi bi-plus-circle me-1"></i>Lançar Manual</button>
       </div>
     </div>
     <div id="lista-pendencias"></div>
@@ -1215,6 +1216,44 @@
         <button type="button" class="btn btn-primary" onclick="salvarNovoUsuario()">
           <i class="bi bi-check-lg me-1"></i>Criar usuário
         </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal Lançamento Manual de Pendência -->
+<div class="modal fade" id="modalPendenciaManual" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="bi bi-plus-circle me-2 text-success"></i>Lançar Pendência Manual</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-3">
+          <label class="form-label fw-semibold">Jogador</label>
+          <select id="pm-jogador" class="form-select">
+            <option value="">Selecione...</option>
+          </select>
+        </div>
+        <div class="mb-3">
+          <label class="form-label fw-semibold">Jogo de referência <span class="text-muted fw-normal">(opcional)</span></label>
+          <select id="pm-jogo" class="form-select">
+            <option value="">Nenhum</option>
+          </select>
+        </div>
+        <div class="mb-3">
+          <label class="form-label fw-semibold">Descrição</label>
+          <input type="text" id="pm-descricao" class="form-control" placeholder="Ex: Jogo Semanal — 21/05/2026">
+        </div>
+        <div class="mb-3">
+          <label class="form-label fw-semibold">Valor (R$)</label>
+          <input type="number" id="pm-valor" class="form-control" min="0" step="0.01" placeholder="35,00">
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button class="btn btn-success" onclick="salvarPendenciaManual()"><i class="bi bi-check-lg me-1"></i>Lançar</button>
       </div>
     </div>
   </div>
@@ -3835,6 +3874,64 @@ async function togglePermissao(tipo, slug, valor, el) {
 }
 
 // ── Pendências Financeiras ────────────────────────────────────────────────────
+
+async function abrirPendenciaManual() {
+  // Carrega jogadores ativos
+  const jogadores = await api('GET', '/api/jogadores');
+  const selJ = document.getElementById('pm-jogador');
+  selJ.innerHTML = '<option value="">Selecione...</option>' +
+    jogadores.filter(j => j.ativo).sort((a,b) => a.nome.localeCompare(b.nome))
+      .map(j => `<option value="${j.id}">${j.nome}${j.apelido ? ' ('+j.apelido+')' : ''}</option>`).join('');
+
+  // Carrega jogos em ordem decrescente
+  const jogos = await api('GET', '/api/jogos');
+  const selJogo = document.getElementById('pm-jogo');
+  selJogo.innerHTML = '<option value="">Nenhum</option>' +
+    [...jogos].reverse().map(j => {
+      const cat = j.categoria || '';
+      const label = `${fmtDate(j.data)}${cat ? ' — '+cat : ''}`;
+      return `<option value="${j.id}" data-data="${j.data}" data-cat="${cat}">${label}</option>`;
+    }).join('');
+
+  // Ao selecionar jogo, preenche descrição automaticamente
+  selJogo.onchange = function() {
+    const opt = this.options[this.selectedIndex];
+    if (!this.value) return;
+    const cat = opt.dataset.cat || 'Jogo Semanal';
+    const dataFmt = opt.dataset.data ? fmtDate(opt.dataset.data) : '';
+    document.getElementById('pm-descricao').value = `${cat} — ${dataFmt}`;
+  };
+
+  document.getElementById('pm-descricao').value = '';
+  document.getElementById('pm-valor').value = '';
+  new bootstrap.Modal('#modalPendenciaManual').show();
+}
+
+async function salvarPendenciaManual() {
+  const jogadorId = parseInt(document.getElementById('pm-jogador').value);
+  const jogoId    = document.getElementById('pm-jogo').value;
+  const descricao = document.getElementById('pm-descricao').value.trim();
+  const valor     = parseFloat(document.getElementById('pm-valor').value);
+
+  if (!jogadorId) { toast('Selecione um jogador.', 'warning'); return; }
+  if (!descricao) { toast('Informe a descrição.', 'warning'); return; }
+  if (!valor || valor <= 0) { toast('Informe um valor válido.', 'warning'); return; }
+
+  try {
+    await api('POST', '/api/pendencias/manual', {
+      jogador_id: jogadorId,
+      jogo_id: jogoId ? parseInt(jogoId) : null,
+      descricao,
+      valor,
+    });
+    bootstrap.Modal.getInstance(document.getElementById('modalPendenciaManual')).hide();
+    toast('Pendência lançada com sucesso!');
+    await carregarPendencias();
+  } catch(e) {
+    toast(e.message || 'Erro ao lançar pendência.', 'danger');
+  }
+}
+
 async function regenerarPendencias() {
   const btn = document.getElementById('btn-regenerar-pendencias');
   btn.disabled = true;
@@ -4206,7 +4303,7 @@ async function iniciarApp(perms, tipo, jogadorId, publicUrl) {
   // Esconde botões de ação para não-admins
   if (tipoUsuarioLogado !== 'admin') {
     ['btn-novo-jogador','btn-novo-jogo','btn-novo-pagamento','btn-nova-saida',
-     'btn-link-convite','btn-cobrar-massa','btn-regenerar-pendencias'].forEach(id => {
+     'btn-link-convite','btn-cobrar-massa','btn-regenerar-pendencias','btn-pendencia-manual'].forEach(id => {
       const el = document.getElementById(id);
       if (el) el.classList.add('d-none');
     });

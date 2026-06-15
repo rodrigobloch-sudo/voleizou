@@ -468,6 +468,7 @@
             <th>Descrição</th>
             <th>Categoria</th>
             <th>Valor</th>
+            <th>Status</th>
             <th>Obs.</th>
             <th></th>
           </tr></thead>
@@ -525,7 +526,7 @@
     </div>
 
     <!-- Totais -->
-    <div class="row g-3 mb-4">
+    <div class="row g-3 mb-4" id="caixa-cards-normal">
       <div class="col-4">
         <div class="stat-card" style="background:linear-gradient(135deg,#2563eb,#1d4ed8)">
           <div class="label">Total entradas</div>
@@ -540,8 +541,23 @@
       </div>
       <div class="col-4">
         <div class="stat-card" style="background:linear-gradient(135deg,#059669,#047857)">
-          <div class="label">Saldo em caixa</div>
+          <div class="label">Saldo confirmado</div>
           <div class="value" id="caixa-saldo" style="font-size:1.3rem">—</div>
+        </div>
+      </div>
+    </div>
+    <!-- Card extra de previstas — só admin -->
+    <div class="row g-3 mb-4 d-none" id="caixa-card-previsto">
+      <div class="col-6">
+        <div class="stat-card" style="background:linear-gradient(135deg,#d97706,#b45309)">
+          <div class="label">Saídas previstas</div>
+          <div class="value" id="caixa-saidas-previstas" style="font-size:1.3rem">—</div>
+        </div>
+      </div>
+      <div class="col-6">
+        <div class="stat-card" style="background:linear-gradient(135deg,#0f766e,#0d5354)">
+          <div class="label">Saldo com previstos</div>
+          <div class="value" id="caixa-saldo-previsto" style="font-size:1.3rem">—</div>
         </div>
       </div>
     </div>
@@ -1102,10 +1118,11 @@
   <div class="modal-dialog">
     <div class="modal-content">
       <div class="modal-header">
-        <h5 class="modal-title">Registrar saída</h5>
+        <h5 class="modal-title" id="modalSaidaTitulo">Registrar saída</h5>
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
       <div class="modal-body">
+        <input type="hidden" id="saida-id" />
         <div class="mb-3">
           <label class="form-label">Descrição *</label>
           <input type="text" class="form-control" id="saida-desc" />
@@ -1122,6 +1139,13 @@
           <label class="form-label">Categoria</label>
           <select class="form-select" id="saida-cat">
             <option value="">Selecione</option>
+          </select>
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Status</label>
+          <select class="form-select" id="saida-status">
+            <option value="Confirmada">Confirmada</option>
+            <option value="Prevista">Prevista</option>
           </select>
         </div>
         <div class="mb-3">
@@ -2884,44 +2908,75 @@ async function carregarSaidas() {
     const saidas = await api('GET', url);
     const tbody = document.getElementById('tabela-saidas');
     if (saidas.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted py-4">Nenhuma saída encontrada.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted py-4">Nenhuma saída encontrada.</td></tr>';
       return;
     }
-    tbody.innerHTML = saidas.map(s => `
-      <tr>
+    tbody.innerHTML = saidas.map(s => {
+      const isPrevista = s.status === 'Prevista';
+      const badge = isPrevista
+        ? '<span class="badge bg-warning text-dark">Prevista</span>'
+        : '<span class="badge bg-success">Confirmada</span>';
+      const adminBtns = tipoUsuarioLogado === 'admin'
+        ? `<button class="btn btn-sm btn-outline-secondary me-1" onclick="editarSaida(${s.id},${JSON.stringify(s.descricao)},${s.valor},${JSON.stringify(s.data)},${JSON.stringify(s.categoria||'')},${JSON.stringify(s.observacao||'')},${JSON.stringify(s.status||'Confirmada')})"><i class="bi bi-pencil"></i></button>
+           <button class="btn btn-sm btn-outline-danger" onclick="deletarSaida(${s.id})"><i class="bi bi-trash"></i></button>`
+        : '';
+      return `<tr class="${isPrevista ? 'text-muted fst-italic' : ''}">
         <td class="ps-3">${fmtDate(s.data)}</td>
         <td>${s.descricao}</td>
         <td>${s.categoria || '—'}</td>
-        <td class="fw-bold text-danger">${fmt(s.valor)}</td>
+        <td class="fw-bold ${isPrevista ? 'text-warning' : 'text-danger'}">${fmt(s.valor)}</td>
+        <td>${badge}</td>
         <td>${s.observacao || '—'}</td>
-        <td class="text-end pe-3">
-          ${tipoUsuarioLogado === 'admin' ? `<button class="btn btn-sm btn-outline-danger" onclick="deletarSaida(${s.id})"><i class="bi bi-trash"></i></button>` : ''}
-        </td>
-      </tr>`).join('');
+        <td class="text-end pe-3">${adminBtns}</td>
+      </tr>`;
+    }).join('');
   } catch(e) { toast(e.message, 'danger'); }
 }
 
 function abrirModalSaida() {
+  document.getElementById('saida-id').value = '';
+  document.getElementById('modalSaidaTitulo').textContent = 'Registrar saída';
   document.getElementById('saida-desc').value = '';
   document.getElementById('saida-valor').value = '';
   fpSet('saida-data', today());
   document.getElementById('saida-cat').value = '';
+  document.getElementById('saida-status').value = 'Confirmada';
   document.getElementById('saida-obs').value = '';
   new bootstrap.Modal('#modalSaida').show();
 }
 
+function editarSaida(id, desc, valor, data, cat, obs, status) {
+  document.getElementById('saida-id').value = id;
+  document.getElementById('modalSaidaTitulo').textContent = 'Editar saída';
+  document.getElementById('saida-desc').value = desc;
+  document.getElementById('saida-valor').value = valor;
+  fpSet('saida-data', data);
+  document.getElementById('saida-cat').value = cat || '';
+  document.getElementById('saida-status').value = status || 'Confirmada';
+  document.getElementById('saida-obs').value = obs || '';
+  new bootstrap.Modal('#modalSaida').show();
+}
+
 async function salvarSaida() {
+  const id = document.getElementById('saida-id').value;
   const desc = document.getElementById('saida-desc').value.trim();
   const valor = parseFloat(document.getElementById('saida-valor').value);
   const data = document.getElementById('saida-data').value;
   if (!desc || !valor || !data) { toast('Preencha os campos obrigatórios', 'warning'); return; }
+  const body = {
+    descricao: desc, valor, data,
+    categoria: document.getElementById('saida-cat').value || null,
+    status: document.getElementById('saida-status').value,
+    observacao: document.getElementById('saida-obs').value || null,
+  };
   try {
-    await api('POST', '/api/saidas', {
-      descricao: desc, valor, data,
-      categoria: document.getElementById('saida-cat').value || null,
-      observacao: document.getElementById('saida-obs').value || null,
-    });
-    toast('Saída registrada!');
+    if (id) {
+      await api('PUT', `/api/saidas/${id}`, body);
+      toast('Saída atualizada!');
+    } else {
+      await api('POST', '/api/saidas', body);
+      toast('Saída registrada!');
+    }
     bootstrap.Modal.getInstance('#modalSaida').hide();
     carregarSaidas();
   } catch(e) { toast(e.message, 'danger'); }
@@ -3268,6 +3323,12 @@ async function carregarCaixa() {
     document.getElementById('caixa-entradas').textContent = fmt(d.total_entradas);
     document.getElementById('caixa-saidas').textContent = fmt(d.total_saidas);
     document.getElementById('caixa-saldo').textContent = fmt(d.saldo_caixa);
+
+    if (tipoUsuarioLogado === 'admin') {
+      document.getElementById('caixa-card-previsto').classList.remove('d-none');
+      document.getElementById('caixa-saidas-previstas').textContent = fmt(d.total_saidas_previstas);
+      document.getElementById('caixa-saldo-previsto').textContent = fmt(d.saldo_previsto);
+    }
 
     const tbody = document.getElementById('tabela-caixa');
     if (d.historico.length === 0) {

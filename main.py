@@ -129,6 +129,7 @@ def _migrar():
             ("jogos",     "local_nome",            "VARCHAR"),
             ("usuarios",  "tipo",                  "VARCHAR"),
             ("usuarios",  "jogador_id",            "INTEGER"),
+            ("saidas",    "status",                "VARCHAR"),
         ]
         for tabela, coluna, tipo in migrações:
             try:
@@ -1210,6 +1211,15 @@ class SaidaCreate(BaseModel):
     data: date
     categoria: Optional[str] = None
     observacao: Optional[str] = None
+    status: str = "Confirmada"
+
+class SaidaUpdate(BaseModel):
+    descricao: Optional[str] = None
+    valor: Optional[float] = None
+    data: Optional[date] = None
+    categoria: Optional[str] = None
+    observacao: Optional[str] = None
+    status: Optional[str] = None
 
 
 class EntradaCreate(BaseModel):
@@ -1926,6 +1936,7 @@ def listar_saidas(mes: Optional[int] = None, ano: Optional[int] = None, db: Sess
         {
             "id": s.id, "descricao": s.descricao, "valor": s.valor,
             "data": s.data.isoformat(), "categoria": s.categoria, "observacao": s.observacao,
+            "status": s.status or "Confirmada",
         }
         for s in saidas
     ]
@@ -1938,6 +1949,17 @@ def criar_saida(data: SaidaCreate, request: Request, db: Session = Depends(get_d
     db.commit()
     db.refresh(s)
     return {"id": s.id, "descricao": s.descricao, "valor": s.valor, "data": s.data.isoformat()}
+
+@app.put("/api/saidas/{saida_id}")
+def editar_saida(saida_id: int, data: SaidaUpdate, request: Request, db: Session = Depends(get_db)):
+    _exigir_admin(request, db)
+    s = db.query(models.Saida).filter(models.Saida.id == saida_id).first()
+    if not s:
+        raise HTTPException(404, "Saída não encontrada")
+    for campo, valor in data.model_dump(exclude_none=True).items():
+        setattr(s, campo, valor)
+    db.commit()
+    return {"ok": True}
 
 @app.delete("/api/saidas/{saida_id}")
 def deletar_saida(saida_id: int, request: Request, db: Session = Depends(get_db)):
@@ -2112,6 +2134,7 @@ def dashboard(mes: Optional[int] = None, ano: Optional[int] = None, db: Session 
     saidas_mes = db.query(models.Saida).filter(
         extract("month", models.Saida.data) == mes,
         extract("year", models.Saida.data) == ano,
+        (models.Saida.status == None) | (models.Saida.status == "Confirmada"),
     ).all()
     total_saidas = sum(s.valor for s in saidas_mes)
 
@@ -2739,22 +2762,28 @@ def caixa_geral(db: Session = Depends(get_db)):
     total_entradas_gerais = sum(e.valor for e in todas_entradas_gerais)
     total_entradas = total_pagamentos + total_entradas_gerais
 
-    # Todas as saídas
+    # Saídas separadas por status
     todas_saidas = db.query(models.Saida).all()
-    total_saidas = sum(s.valor for s in todas_saidas)
+    saidas_confirmadas = [s for s in todas_saidas if (s.status or "Confirmada") == "Confirmada"]
+    saidas_previstas   = [s for s in todas_saidas if (s.status or "Confirmada") == "Prevista"]
+    total_saidas            = sum(s.valor for s in saidas_confirmadas)
+    total_saidas_previstas  = sum(s.valor for s in saidas_previstas)
 
     # Resumo por mês (últimos 12 meses com movimento)
     from collections import defaultdict
-    por_mes = defaultdict(lambda: {"entradas": 0.0, "saidas": 0.0})
+    por_mes = defaultdict(lambda: {"entradas": 0.0, "saidas": 0.0, "saidas_previstas": 0.0})
     for p in todos_pagamentos:
         chave = f"{p.data_pagamento.year}-{p.data_pagamento.month:02d}"
         por_mes[chave]["entradas"] += p.valor
     for e in todas_entradas_gerais:
         chave = f"{e.data.year}-{e.data.month:02d}"
         por_mes[chave]["entradas"] += e.valor
-    for s in todas_saidas:
+    for s in saidas_confirmadas:
         chave = f"{s.data.year}-{s.data.month:02d}"
         por_mes[chave]["saidas"] += s.valor
+    for s in saidas_previstas:
+        chave = f"{s.data.year}-{s.data.month:02d}"
+        por_mes[chave]["saidas_previstas"] += s.valor
 
     MESES_PT = ["", "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
                 "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"]
@@ -2762,20 +2791,24 @@ def caixa_geral(db: Session = Depends(get_db)):
     historico = []
     for chave in sorted(por_mes.keys(), reverse=True)[:12]:
         ano, mes = int(chave.split("-")[0]), int(chave.split("-")[1])
-        e = por_mes[chave]["entradas"]
-        s = por_mes[chave]["saidas"]
+        e  = por_mes[chave]["entradas"]
+        s  = por_mes[chave]["saidas"]
+        sp = por_mes[chave]["saidas_previstas"]
         historico.append({
             "chave": chave,
             "mes_nome": f"{MESES_PT[mes]} {ano}",
             "entradas": e,
             "saidas": s,
+            "saidas_previstas": sp,
             "saldo": e - s,
         })
 
     return {
         "total_entradas": total_entradas,
         "total_saidas": total_saidas,
+        "total_saidas_previstas": total_saidas_previstas,
         "saldo_caixa": total_entradas - total_saidas,
+        "saldo_previsto": total_entradas - total_saidas - total_saidas_previstas,
         "historico": historico,
     }
 

@@ -83,6 +83,7 @@ class Saida(Base):
     data       = Column(Date, nullable=False)
     categoria  = Column(String, nullable=True)
     observacao = Column(String, nullable=True)
+    status     = Column(String, nullable=False, server_default="Confirmada")
     criado_em  = Column(DateTime, server_default=func.now())
 
 

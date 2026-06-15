@@ -91,6 +91,17 @@
         </div>
       </div>
 
+      <!-- Chave Pix -->
+      <div class="card p-4 mb-3" style="background:#eff6ff;border:1.5px solid #bfdbfe;">
+        <h6 class="fw-bold mb-2"><i class="bi bi-qr-code me-2 text-primary"></i>Chave Pix para pagamento</h6>
+        <div class="d-flex align-items-center gap-2">
+          <span class="fw-bold fs-6" id="chave-pix-texto">voleizoupoa@gmail.com</span>
+          <button class="btn btn-sm btn-outline-primary" onclick="copiarChavePix()" id="btn-copiar-pix">
+            <i class="bi bi-copy"></i> Copiar
+          </button>
+        </div>
+      </div>
+
       <!-- Formulário -->
       <div class="card p-4">
         <h6 class="fw-bold mb-3"><i class="bi bi-file-earmark-arrow-up me-2 text-primary"></i>Enviar comprovante</h6>
@@ -272,6 +283,18 @@ async function enviarComprovante() {
     btn.disabled = false;
     btn.innerHTML = '<i class="bi bi-send me-2"></i>Enviar comprovante';
   }
+}
+
+function copiarChavePix() {
+  navigator.clipboard.writeText('voleizoupoa@gmail.com').then(() => {
+    const btn = document.getElementById('btn-copiar-pix');
+    btn.innerHTML = '<i class="bi bi-check-lg"></i> Copiado!';
+    btn.classList.replace('btn-outline-primary', 'btn-success');
+    setTimeout(() => {
+      btn.innerHTML = '<i class="bi bi-copy"></i> Copiar';
+      btn.classList.replace('btn-success', 'btn-outline-primary');
+    }, 2000);
+  });
 }
 
 // Drag and drop

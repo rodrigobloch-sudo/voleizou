@@ -1161,6 +1161,29 @@
   </div>
 </div>
 
+<!-- Modal Duplicar Saída -->
+<div class="modal fade" id="modalDuplicarSaida" tabindex="-1">
+  <div class="modal-dialog modal-sm">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Duplicar saída</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <p class="text-muted small mb-3" id="duplicar-saida-info"></p>
+        <div class="mb-3">
+          <label class="form-label">Nova data *</label>
+          <input type="text" class="form-control" id="duplicar-saida-data" placeholder="DD/MM/AAAA" readonly />
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button class="btn btn-primary" onclick="confirmarDuplicarSaida()">Duplicar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- Modal Entrada -->
 <div class="modal fade" id="modalEntrada" tabindex="-1">
   <div class="modal-dialog">
@@ -1474,7 +1497,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Datas operacionais — formato ISO internamente, exibe DD/MM/YYYY
   const opOpts = { dateFormat: 'Y-m-d', altInput: true, altFormat: 'd/m/Y', disableMobile: true };
-  ['jogo-data', 'duplicar-jogo-data', 'pag-data', 'saida-data', 'entrada-data'].forEach(id => {
+  ['jogo-data', 'duplicar-jogo-data', 'pag-data', 'saida-data', 'entrada-data', 'duplicar-saida-data'].forEach(id => {
     const el = document.getElementById(id);
     if (el) flatpickr(el, opOpts);
   });
@@ -2911,13 +2934,16 @@ async function carregarSaidas() {
       tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted py-4">Nenhuma saída encontrada.</td></tr>';
       return;
     }
+    window._saidasMap = {};
+    saidas.forEach(s => { window._saidasMap[s.id] = s; });
     tbody.innerHTML = saidas.map(s => {
       const isPrevista = s.status === 'Prevista';
       const badge = isPrevista
         ? '<span class="badge bg-warning text-dark">Prevista</span>'
         : '<span class="badge bg-success">Confirmada</span>';
       const adminBtns = tipoUsuarioLogado === 'admin'
-        ? `<button class="btn btn-sm btn-outline-secondary me-1" onclick="editarSaida(${s.id},${JSON.stringify(s.descricao)},${s.valor},${JSON.stringify(s.data)},${JSON.stringify(s.categoria||'')},${JSON.stringify(s.observacao||'')},${JSON.stringify(s.status||'Confirmada')})"><i class="bi bi-pencil"></i></button>
+        ? `<button class="btn btn-sm btn-outline-secondary me-1" onclick="editarSaida(${s.id})" title="Editar"><i class="bi bi-pencil"></i></button>
+           <button class="btn btn-sm btn-outline-primary me-1" onclick="duplicarSaida(${s.id})" title="Duplicar"><i class="bi bi-copy"></i></button>
            <button class="btn btn-sm btn-outline-danger" onclick="deletarSaida(${s.id})"><i class="bi bi-trash"></i></button>`
         : '';
       return `<tr class="${isPrevista ? 'text-muted fst-italic' : ''}">
@@ -2945,16 +2971,45 @@ function abrirModalSaida() {
   new bootstrap.Modal('#modalSaida').show();
 }
 
-function editarSaida(id, desc, valor, data, cat, obs, status) {
+function editarSaida(id) {
+  const s = window._saidasMap && window._saidasMap[id];
+  if (!s) return;
   document.getElementById('saida-id').value = id;
   document.getElementById('modalSaidaTitulo').textContent = 'Editar saída';
-  document.getElementById('saida-desc').value = desc;
-  document.getElementById('saida-valor').value = valor;
-  fpSet('saida-data', data);
-  document.getElementById('saida-cat').value = cat || '';
-  document.getElementById('saida-status').value = status || 'Confirmada';
-  document.getElementById('saida-obs').value = obs || '';
+  document.getElementById('saida-desc').value = s.descricao;
+  document.getElementById('saida-valor').value = s.valor;
+  fpSet('saida-data', s.data);
+  document.getElementById('saida-cat').value = s.categoria || '';
+  document.getElementById('saida-status').value = s.status || 'Confirmada';
+  document.getElementById('saida-obs').value = s.observacao || '';
   new bootstrap.Modal('#modalSaida').show();
+}
+
+function duplicarSaida(id) {
+  const s = window._saidasMap && window._saidasMap[id];
+  if (!s) return;
+  window._duplicarSaidaBase = s;
+  fpSet('duplicar-saida-data', today());
+  document.getElementById('duplicar-saida-info').textContent =
+    `${s.descricao} — ${fmt(s.valor)}${s.categoria ? ' (' + s.categoria + ')' : ''}`;
+  new bootstrap.Modal('#modalDuplicarSaida').show();
+}
+
+async function confirmarDuplicarSaida() {
+  const s = window._duplicarSaidaBase;
+  const data = document.getElementById('duplicar-saida-data').value;
+  if (!s || !data) return;
+  try {
+    await api('POST', '/api/saidas', {
+      descricao: s.descricao, valor: s.valor, data,
+      categoria: s.categoria || null,
+      observacao: s.observacao || null,
+      status: s.status || 'Confirmada',
+    });
+    toast('Saída duplicada!');
+    bootstrap.Modal.getInstance('#modalDuplicarSaida').hide();
+    carregarSaidas();
+  } catch(e) { toast(e.message, 'danger'); }
 }
 
 async function salvarSaida() {

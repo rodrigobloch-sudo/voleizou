@@ -3364,9 +3364,9 @@ async function enviarWhatsApp(jogadorId, nomeJogador, telefone, tipo) {
         dataJogoFmt = `${diaJ}/${mesJ}/${anoJ}`;
       }
     } catch(e) {}
-    msg = `Olá ${nomeJogador}!\n\nAqui é da equipe do Voleizou!\n\nSegue o link para enviar seu comprovante de pagamento referente ao jogo do dia *${dataJogoFmt}*:\n\nChave Pix: voleizoupoa@gmail.com\n\n${link}\n\nObrigado!`;
+    msg = `Olá ${nomeJogador}!\n\nAqui é da equipe do Voleizou!\n\nSegue o link para enviar seu comprovante de pagamento referente ao jogo do dia *${dataJogoFmt}*:\n\nPague com a chave pix: voleizoupoa@gmail.com\n\n${link}\n\nObrigado!`;
   } else {
-    msg = `Olá ${nomeJogador}!\n\nAqui é da equipe do Voleizou!\n\nSegue o link para enviar seu comprovante de pagamento referente a *${mes} ${ano}*:\n\nChave Pix: voleizoupoa@gmail.com\n\n${link}\n\nObrigado!`;
+    msg = `Olá ${nomeJogador}!\n\nAqui é da equipe do Voleizou!\n\nSegue o link para enviar seu comprovante de pagamento referente a *${mes} ${ano}*:\n\nPague com a chave pix: voleizoupoa@gmail.com\n\n${link}\n\nObrigado!`;
   }
 
   const tel = telefone ? telefone.replace(/\D/g, '') : '';
@@ -3778,8 +3778,8 @@ async function cobrancaEnviar() {
   if (j.telefone) {
     const link  = linkPagamento(j.id);
     const msg   = j.tipo === 'avulso'
-      ? `Olá ${j.nome}!\n\nAqui é da equipe do Voleizou!\n\nSegue o link para enviar seu comprovante de pagamento referente ao jogo do dia *${j.ref}*:\n\nChave Pix: voleizoupoa@gmail.com\n\n${link}\n\nObrigado!`
-      : `Olá ${j.nome}!\n\nAqui é da equipe do Voleizou!\n\nSegue o link para enviar seu comprovante de pagamento referente a *${j.ref}*:\n\nChave Pix: voleizoupoa@gmail.com\n\n${link}\n\nObrigado!`;
+      ? `Olá ${j.nome}!\n\nAqui é da equipe do Voleizou!\n\nSegue o link para enviar seu comprovante de pagamento referente ao jogo do dia *${j.ref}*:\n\nPague com a chave pix: voleizoupoa@gmail.com\n\n${link}\n\nObrigado!`
+      : `Olá ${j.nome}!\n\nAqui é da equipe do Voleizou!\n\nSegue o link para enviar seu comprovante de pagamento referente a *${j.ref}*:\n\nPague com a chave pix: voleizoupoa@gmail.com\n\n${link}\n\nObrigado!`;
     const tel = j.telefone.replace(/\D/g, '');
     const numero = tel.startsWith('55') ? tel : '55' + tel;
     abrirUrl(`https://wa.me/${numero}?text=${encodeURIComponent(msg)}`);
@@ -4211,7 +4211,7 @@ function enviarCobrancaWpp() {
   const link = `${baseUrl}/pagar/${j.id}`;
   const obs = temMensalidade ? '\n\nA mensalidade deve ser paga até o dia 10 de cada mês.' : '';
 
-  const msg = `Olá ${j.nome}!\n\nSuas pendências no Voleizou:\n${linhas}\n\nTotal: ${fmtV(total)}\n\nChave Pix: voleizoupoa@gmail.com\n\nPague pelo link:\n${link}${obs}`;
+  const msg = `Olá ${j.nome}!\n\nSuas pendências no Voleizou:\n${linhas}\n\nTotal: ${fmtV(total)}\n\nPague com a chave pix: voleizoupoa@gmail.com\n\nPague pelo link:\n${link}${obs}`;
 
   const tel = j.telefone.replace(/\D/g, '');
   const numero = tel.startsWith('55') ? tel : '55' + tel;

@@ -2803,12 +2803,18 @@ def caixa_geral(db: Session = Depends(get_db)):
             "saldo": e - s,
         })
 
+    # Pendências em aberto (a receber)
+    total_pendencias_abertas = db.query(
+        func.coalesce(func.sum(models.Pendencia.valor), 0)
+    ).filter(models.Pendencia.quitado == False).scalar()
+
     return {
         "total_entradas": total_entradas,
         "total_saidas": total_saidas,
         "total_saidas_previstas": total_saidas_previstas,
         "saldo_caixa": total_entradas - total_saidas,
         "saldo_previsto": total_entradas - total_saidas - total_saidas_previstas,
+        "total_pendencias_abertas": float(total_pendencias_abertas),
         "historico": historico,
     }
 

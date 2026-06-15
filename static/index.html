@@ -546,6 +546,15 @@
         </div>
       </div>
     </div>
+    <!-- Pendências em aberto -->
+    <div class="row g-3 mb-4">
+      <div class="col-12">
+        <div class="stat-card" style="background:linear-gradient(135deg,#7c3aed,#6d28d9)">
+          <div class="label">Pendências em aberto (a receber)</div>
+          <div class="value" id="caixa-pendencias" style="font-size:1.3rem">—</div>
+        </div>
+      </div>
+    </div>
     <!-- Card extra de previstas — só admin -->
     <div class="row g-3 mb-4 d-none" id="caixa-card-previsto">
       <div class="col-6">
@@ -3378,6 +3387,7 @@ async function carregarCaixa() {
     document.getElementById('caixa-entradas').textContent = fmt(d.total_entradas);
     document.getElementById('caixa-saidas').textContent = fmt(d.total_saidas);
     document.getElementById('caixa-saldo').textContent = fmt(d.saldo_caixa);
+    document.getElementById('caixa-pendencias').textContent = fmt(d.total_pendencias_abertas);
 
     if (tipoUsuarioLogado === 'admin') {
       document.getElementById('caixa-card-previsto').classList.remove('d-none');

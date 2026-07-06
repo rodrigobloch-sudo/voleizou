@@ -180,8 +180,8 @@ Resposta:
   "total_saidas": ...,           // só Confirmadas
   "total_saidas_previstas": ..., // só Previstas
   "saldo_caixa": ...,            // entradas - saídas confirmadas
-  "saldo_previsto": ...,         // entradas - confirmadas - previstas
-  "total_pendencias_abertas": ..., // soma de Pendencia onde quitado=False
+  "saldo_previsto": ...,         // entradas - confirmadas - previstas + pendências em aberto
+  "total_pendencias_abertas": ..., // Pendencia (quitado=False) + mensalidade calculada dinamicamente
   "historico": [...]
 }
 ```

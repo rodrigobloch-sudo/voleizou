@@ -4132,6 +4132,7 @@ async function carregarPendencias() {
             <strong class="text-danger">${fmt(it.valor)}</strong>
             ${isAdmin && it.id ? `<button class="btn btn-link btn-sm p-0 text-success me-1" title="Quitar manualmente" onclick="quitarPendencia(${it.id})"><i class="bi bi-check-circle"></i></button>` : ''}
             ${isAdmin && it.id ? `<button class="btn btn-link btn-sm p-0 text-danger" title="Excluir pendência" onclick="excluirPendencia(${it.id})"><i class="bi bi-x-circle"></i></button>` : ''}
+            ${isAdmin && !it.id && it.tipo === 'mensalidade' ? `<button class="btn btn-link btn-sm p-0 text-danger" title="Cancelar cobrança deste mês" onclick="cancelarMensalidade(${j.id}, '${it.referencia}')"><i class="bi bi-x-circle"></i></button>` : ''}
           </div>
         </div>`).join('');
       const hasTel = j.telefone && j.telefone.replace(/\D/g, '').length >= 10;
@@ -4264,6 +4265,20 @@ async function quitarPendencia(id) {
     toast('Pendência quitada.');
     carregarPendencias();
   } catch(e) { toast('Erro ao quitar pendência.', 'danger'); }
+}
+
+async function cancelarMensalidade(jogadorId, referencia) {
+  const entry = window._pendenciasEntries && window._pendenciasEntries[jogadorId];
+  const item = entry && entry.itens.find(it => it.tipo === 'mensalidade' && it.referencia === referencia && !it.id);
+  if (!item) return;
+  if (!confirm('Cancelar esta cobrança de mensalidade? Ela será marcada como concluída e não será cobrada novamente.')) return;
+  try {
+    await api('POST', '/api/pendencias/mensalidade/cancelar', {
+      jogador_id: jogadorId, referencia, valor: item.valor, descricao: item.descricao,
+    });
+    toast('Cobrança cancelada.');
+    carregarPendencias();
+  } catch(e) { toast('Erro ao cancelar cobrança.', 'danger'); }
 }
 
 // ── Config Valores ────────────────────────────────────────────────────────────

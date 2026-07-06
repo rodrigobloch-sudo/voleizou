@@ -2683,6 +2683,47 @@ def criar_pendencia_manual(data: PendenciaManualCreate, request: Request, db: Se
     db.commit()
     return {"ok": True}
 
+class PendenciaMensalidadeCancelar(BaseModel):
+    jogador_id: int
+    referencia: str
+    valor: float
+    descricao: Optional[str] = None
+
+@app.post("/api/pendencias/mensalidade/cancelar", status_code=201)
+def cancelar_pendencia_mensalidade(data: PendenciaMensalidadeCancelar, request: Request, db: Session = Depends(get_db)):
+    """Admin: cancela a cobrança de mensalidade de um mês calculada automaticamente.
+
+    Diferente de quitar (que implica pagamento), aqui a pendência é encerrada sem
+    gerar Pagamento — não afeta o caixa — e fica registrada como pendência
+    manual já quitada, o que impede o recálculo automático de cobrá-la de novo.
+    """
+    _exigir_admin(request, db)
+    jogador = db.query(models.Jogador).filter(models.Jogador.id == data.jogador_id).first()
+    if not jogador:
+        raise HTTPException(404, "Jogador não encontrado")
+    existente = db.query(models.Pendencia).filter(
+        models.Pendencia.jogador_id == data.jogador_id,
+        models.Pendencia.tipo == "mensalidade",
+        models.Pendencia.referencia == data.referencia,
+    ).first()
+    if existente:
+        existente.quitado = True
+        existente.quitado_em = datetime.utcnow()
+    else:
+        p = models.Pendencia(
+            jogador_id=data.jogador_id,
+            jogo_id=None,
+            tipo="mensalidade",
+            descricao=data.descricao or f"Mensalidade {data.referencia} (cancelada)",
+            valor=data.valor,
+            referencia=data.referencia,
+            quitado=True,
+            quitado_em=datetime.utcnow(),
+        )
+        db.add(p)
+    db.commit()
+    return {"ok": True}
+
 @app.post("/api/pendentes/{pagamento_id}/aprovar")
 def aprovar_pendente(pagamento_id: int, db: Session = Depends(get_db)):
     """Aprova um pagamento pendente e quita as pendências vinculadas."""

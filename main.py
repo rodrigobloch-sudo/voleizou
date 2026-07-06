@@ -2452,6 +2452,18 @@ def _pendencias_jogador(jogador_id: int, db: Session, cfg: dict) -> list:
     if not j:
         return []
     itens = []
+
+    # Pendências de mensalidade lançadas manualmente no banco
+    db_mens = db.query(models.Pendencia).filter(
+        models.Pendencia.jogador_id == jogador_id,
+        models.Pendencia.tipo == "mensalidade",
+    ).all()
+    db_mens_refs = {p.referencia for p in db_mens}
+    for p in db_mens:
+        if not p.quitado:
+            itens.append({"id": p.id, "tipo": "mensalidade",
+                          "descricao": p.descricao, "valor": p.valor, "referencia": p.referencia})
+
     DATA_INICIO_COBRANCA = date(2026, 5, 1)
     if j.tipo == "mensalista":
         for delta in range(1, -1, -1):
@@ -2461,6 +2473,9 @@ def _pendencias_jogador(jogador_id: int, db: Session, cfg: dict) -> list:
                 continue
             if j.criado_em and date(y, m, 1) < j.criado_em.date().replace(day=1):
                 continue
+            ref = f"{y}-{m:02d}"
+            if ref in db_mens_refs:
+                continue  # coberto por pendência manual
             pags = db.query(models.Pagamento).filter(
                 models.Pagamento.jogador_id == j.id,
                 models.Pagamento.tipo == "mensalidade",
@@ -2472,7 +2487,7 @@ def _pendencias_jogador(jogador_id: int, db: Session, cfg: dict) -> list:
             if falta > 0:
                 itens.append({"id": None, "tipo": "mensalidade",
                               "descricao": f"Mensalidade {MESES_PT[m]} {y}",
-                              "valor": falta, "referencia": f"{y}-{m:02d}"})
+                              "valor": falta, "referencia": ref})
     eventos = db.query(models.Pendencia).filter(
         models.Pendencia.jogador_id == jogador_id,
         models.Pendencia.tipo == "evento",
@@ -2517,7 +2532,27 @@ def listar_pendencias(request: Request, db: Session = Depends(get_db)):
 
     result = {}
 
-    # Mensalidade: verifica mês atual e anterior (mínimo maio/2026)
+    # Pendências de mensalidade lançadas manualmente no banco
+    db_mensalidades = db.query(models.Pendencia).filter(
+        models.Pendencia.tipo == "mensalidade",
+    ).all()
+    db_mens_keys = {(p.jogador_id, p.referencia) for p in db_mensalidades}
+    for p in db_mensalidades:
+        if p.quitado:
+            continue
+        j = p.jogador
+        if not j or not j.ativo:
+            continue
+        if j.id not in result:
+            result[j.id] = {"jogador": {"id": j.id, "nome": j.nome, "tipo": j.tipo,
+                                         "telefone": j.telefone, "email": j.email,
+                                         "tem_foto": bool(j.foto)}, "itens": []}
+        result[j.id]["itens"].append({
+            "id": p.id, "tipo": "mensalidade",
+            "descricao": p.descricao, "valor": p.valor, "referencia": p.referencia,
+        })
+
+    # Mensalidade calculada dinamicamente: mês atual e anterior (mínimo maio/2026)
     DATA_INICIO_COBRANCA = date(2026, 5, 1)
     for j in mensalistas:
         for delta in range(1, -1, -1):
@@ -2529,6 +2564,9 @@ def listar_pendencias(request: Request, db: Session = Depends(get_db)):
             # Não cobrar meses antes da criação do jogador
             if j.criado_em and date(y, m, 1) < j.criado_em.date().replace(day=1):
                 continue
+            ref = f"{y}-{m:02d}"
+            if (j.id, ref) in db_mens_keys:
+                continue  # coberto por pendência manual
             pags = db.query(models.Pagamento).filter(
                 models.Pagamento.jogador_id == j.id,
                 models.Pagamento.tipo == "mensalidade",
@@ -2545,7 +2583,7 @@ def listar_pendencias(request: Request, db: Session = Depends(get_db)):
                 result[j.id]["itens"].append({
                     "id": None, "tipo": "mensalidade",
                     "descricao": f"Mensalidade {MESES_PT[m]} {y}",
-                    "valor": falta, "referencia": f"{y}-{m:02d}",
+                    "valor": falta, "referencia": ref,
                 })
 
     # Pendências de evento abertas
@@ -2604,31 +2642,43 @@ class PendenciaManualCreate(BaseModel):
     jogador_id: int
     valor: float
     descricao: str
+    tipo: str = "evento"
     jogo_id: Optional[int] = None
     referencia: Optional[str] = None
 
 @app.post("/api/pendencias/manual", status_code=201)
 def criar_pendencia_manual(data: PendenciaManualCreate, request: Request, db: Session = Depends(get_db)):
-    """Admin: cria uma pendência avulsa manualmente para um jogador."""
+    """Admin: cria uma pendência manualmente para um jogador (evento ou mensalidade)."""
     _exigir_admin(request, db)
     jogador = db.query(models.Jogador).filter(models.Jogador.id == data.jogador_id).first()
     if not jogador:
         raise HTTPException(404, "Jogador não encontrado")
-    if data.jogo_id:
-        jogo = db.query(models.Jogo).filter(models.Jogo.id == data.jogo_id).first()
-        if not jogo:
-            raise HTTPException(404, "Jogo não encontrado")
-        referencia = data.referencia or jogo.data.isoformat()
+    if data.tipo == "mensalidade":
+        referencia = data.referencia or date.today().strftime("%Y-%m")
+        p = models.Pendencia(
+            jogador_id=data.jogador_id,
+            jogo_id=None,
+            tipo="mensalidade",
+            descricao=data.descricao,
+            valor=data.valor,
+            referencia=referencia,
+        )
     else:
-        referencia = data.referencia or date.today().isoformat()
-    p = models.Pendencia(
-        jogador_id=data.jogador_id,
-        jogo_id=data.jogo_id,
-        tipo="evento",
-        descricao=data.descricao,
-        valor=data.valor,
-        referencia=referencia,
-    )
+        if data.jogo_id:
+            jogo = db.query(models.Jogo).filter(models.Jogo.id == data.jogo_id).first()
+            if not jogo:
+                raise HTTPException(404, "Jogo não encontrado")
+            referencia = data.referencia or jogo.data.isoformat()
+        else:
+            referencia = data.referencia or date.today().isoformat()
+        p = models.Pendencia(
+            jogador_id=data.jogador_id,
+            jogo_id=data.jogo_id,
+            tipo="evento",
+            descricao=data.descricao,
+            valor=data.valor,
+            referencia=referencia,
+        )
     db.add(p)
     db.commit()
     return {"ok": True}

@@ -647,7 +647,6 @@
       </div>
       <div class="d-flex gap-2">
         <button class="btn btn-outline-secondary btn-sm" onclick="carregarPendencias()"><i class="bi bi-arrow-clockwise"></i></button>
-        <button class="btn btn-outline-primary btn-sm" id="btn-regenerar-pendencias" onclick="regenerarPendencias()" title="Recalcular pendências de eventos"><i class="bi bi-lightning me-1"></i>Recalcular</button>
         <button class="btn btn-outline-success btn-sm" id="btn-pendencia-manual" onclick="abrirPendenciaManual()" title="Lançar pendência manualmente"><i class="bi bi-plus-circle me-1"></i>Lançar Manual</button>
       </div>
     </div>
@@ -1284,16 +1283,27 @@
       </div>
       <div class="modal-body">
         <div class="mb-3">
+          <label class="form-label fw-semibold">Tipo</label>
+          <select id="pm-tipo" class="form-select" onchange="onPmTipoChange()">
+            <option value="evento">Evento</option>
+            <option value="mensalidade">Mensalidade</option>
+          </select>
+        </div>
+        <div class="mb-3">
           <label class="form-label fw-semibold">Jogador</label>
           <select id="pm-jogador" class="form-select">
             <option value="">Selecione...</option>
           </select>
         </div>
-        <div class="mb-3">
+        <div class="mb-3" id="pm-jogo-group">
           <label class="form-label fw-semibold">Jogo de referência <span class="text-muted fw-normal">(opcional)</span></label>
           <select id="pm-jogo" class="form-select">
             <option value="">Nenhum</option>
           </select>
+        </div>
+        <div class="mb-3" id="pm-mes-group" style="display:none">
+          <label class="form-label fw-semibold">Mês de referência</label>
+          <input type="month" id="pm-mes" class="form-control" onchange="onPmMesChange()">
         </div>
         <div class="mb-3">
           <label class="form-label fw-semibold">Descrição</label>
@@ -4025,14 +4035,42 @@ async function abrirPendenciaManual() {
     document.getElementById('pm-descricao').value = `${cat} — ${dataFmt}`;
   };
 
+  // Pré-seleciona mês atual para mensalidade
+  const hoje = new Date();
+  const mesAtual = `${hoje.getFullYear()}-${String(hoje.getMonth()+1).padStart(2,'0')}`;
+  document.getElementById('pm-mes').value = mesAtual;
+
+  // Reset para tipo evento
+  document.getElementById('pm-tipo').value = 'evento';
   document.getElementById('pm-descricao').value = '';
   document.getElementById('pm-valor').value = '';
+  onPmTipoChange();
   new bootstrap.Modal('#modalPendenciaManual').show();
 }
 
+function onPmTipoChange() {
+  const tipo = document.getElementById('pm-tipo').value;
+  const isMens = tipo === 'mensalidade';
+  document.getElementById('pm-jogo-group').style.display = isMens ? 'none' : '';
+  document.getElementById('pm-mes-group').style.display  = isMens ? '' : 'none';
+  if (isMens) {
+    document.getElementById('pm-valor').value = configValores.valor_mensalidade || '';
+    onPmMesChange();
+  }
+}
+
+function onPmMesChange() {
+  const val = document.getElementById('pm-mes').value;
+  if (!val) return;
+  const [y, m] = val.split('-');
+  const MESES = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho',
+                 'Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+  document.getElementById('pm-descricao').value = `Mensalidade ${MESES[parseInt(m)-1]} ${y}`;
+}
+
 async function salvarPendenciaManual() {
+  const tipo      = document.getElementById('pm-tipo').value;
   const jogadorId = parseInt(document.getElementById('pm-jogador').value);
-  const jogoId    = document.getElementById('pm-jogo').value;
   const descricao = document.getElementById('pm-descricao').value.trim();
   const valor     = parseFloat(document.getElementById('pm-valor').value);
 
@@ -4040,34 +4078,24 @@ async function salvarPendenciaManual() {
   if (!descricao) { toast('Informe a descrição.', 'warning'); return; }
   if (!valor || valor <= 0) { toast('Informe um valor válido.', 'warning'); return; }
 
+  const body = { jogador_id: jogadorId, tipo, descricao, valor };
+
+  if (tipo === 'mensalidade') {
+    const mes = document.getElementById('pm-mes').value;
+    if (!mes) { toast('Selecione o mês de referência.', 'warning'); return; }
+    body.referencia = mes;
+  } else {
+    const jogoId = document.getElementById('pm-jogo').value;
+    if (jogoId) body.jogo_id = parseInt(jogoId);
+  }
+
   try {
-    await api('POST', '/api/pendencias/manual', {
-      jogador_id: jogadorId,
-      jogo_id: jogoId ? parseInt(jogoId) : null,
-      descricao,
-      valor,
-    });
+    await api('POST', '/api/pendencias/manual', body);
     bootstrap.Modal.getInstance(document.getElementById('modalPendenciaManual')).hide();
     toast('Pendência lançada com sucesso!');
     await carregarPendencias();
   } catch(e) {
     toast(e.message || 'Erro ao lançar pendência.', 'danger');
-  }
-}
-
-async function regenerarPendencias() {
-  const btn = document.getElementById('btn-regenerar-pendencias');
-  btn.disabled = true;
-  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Recalculando...';
-  try {
-    await api('POST', '/api/pendencias/regenerar');
-    toast('Pendências recalculadas com sucesso!');
-    await carregarPendencias();
-  } catch(e) {
-    toast('Erro ao recalcular pendências.');
-  } finally {
-    btn.disabled = false;
-    btn.innerHTML = '<i class="bi bi-lightning me-1"></i>Recalcular';
   }
 }
 
@@ -4426,7 +4454,7 @@ async function iniciarApp(perms, tipo, jogadorId, publicUrl) {
   // Esconde botões de ação para não-admins
   if (tipoUsuarioLogado !== 'admin') {
     ['btn-novo-jogador','btn-novo-jogo','btn-novo-pagamento','btn-nova-saida',
-     'btn-link-convite','btn-cobrar-massa','btn-regenerar-pendencias','btn-pendencia-manual'].forEach(id => {
+     'btn-link-convite','btn-cobrar-massa','btn-pendencia-manual'].forEach(id => {
       const el = document.getElementById(id);
       if (el) el.classList.add('d-none');
     });

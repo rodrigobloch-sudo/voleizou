@@ -644,9 +644,7 @@ def _gerar_pendencias_jogo(db: Session, jogo: models.Jogo):
         for a in avulsos:
             existe = db.query(models.Pendencia).filter_by(jogador_id=a.id, jogo_id=jogo.id).first()
             if existe:
-                existe.valor = valor_avulso
-                existe.descricao = descricao
-                continue
+                continue  # já existe — não recalcula valor/descrição de pendência antiga
             db.add(models.Pendencia(
                 jogador_id=a.id, jogo_id=jogo.id, tipo="evento",
                 descricao=descricao, valor=valor_avulso,
@@ -689,9 +687,7 @@ def _gerar_pendencias_jogo(db: Session, jogo: models.Jogo):
     for j in participantes:
         existe = db.query(models.Pendencia).filter_by(jogador_id=j.id, jogo_id=jogo.id).first()
         if existe:
-            existe.valor = valor_pessoa
-            existe.descricao = descricao
-            continue
+            continue  # já existe — não recalcula valor/descrição de pendência antiga
         db.add(models.Pendencia(
             jogador_id=j.id, jogo_id=jogo.id, tipo="evento",
             descricao=descricao, valor=valor_pessoa,
@@ -2837,6 +2833,49 @@ async def parse_comprovante(file: UploadFile = File(...), db: Session = Depends(
     }
 
 
+def _total_pendencias_mensalidade_dinamica(db: Session, cfg: dict) -> float:
+    """Soma das mensalidades em aberto (mês atual + anterior) calculadas dinamicamente,
+    ou seja, que não têm uma linha correspondente na tabela Pendencia."""
+    VALOR_MENSALIDADE = cfg["valor_mensalidade"]
+    hoje = date.today()
+    mes, ano = hoje.month, hoje.year
+    from sqlalchemy import or_ as _or5
+    admin_ids = {row[0] for row in db.query(models.Usuario.jogador_id).filter(
+        models.Usuario.tipo == "admin", models.Usuario.jogador_id.isnot(None)
+    ).all()}
+    mensalistas = db.query(models.Jogador).filter(
+        _or5(models.Jogador.tipo == "mensalista", models.Jogador.id.in_(admin_ids)),
+        models.Jogador.ativo == True
+    ).all()
+    db_mens_keys = {(p.jogador_id, p.referencia) for p in db.query(models.Pendencia).filter(
+        models.Pendencia.tipo == "mensalidade",
+    ).all()}
+    DATA_INICIO_COBRANCA = date(2026, 5, 1)
+    total = 0.0
+    for j in mensalistas:
+        for delta in range(1, -1, -1):
+            m = mes - delta; y = ano
+            if m <= 0: m += 12; y -= 1
+            if date(y, m, 1) < DATA_INICIO_COBRANCA:
+                continue
+            if j.criado_em and date(y, m, 1) < j.criado_em.date().replace(day=1):
+                continue
+            ref = f"{y}-{m:02d}"
+            if (j.id, ref) in db_mens_keys:
+                continue  # coberto por pendência manual (já contada via Pendencia)
+            pags = db.query(models.Pagamento).filter(
+                models.Pagamento.jogador_id == j.id,
+                models.Pagamento.tipo == "mensalidade",
+                extract("month", models.Pagamento.data_pagamento) == m,
+                extract("year",  models.Pagamento.data_pagamento) == y,
+            ).all()
+            pago = sum(p.valor for p in pags if _pagamento_e_mensalidade(p) and not (p.observacao or "").startswith("PENDENTE|"))
+            falta = round(VALOR_MENSALIDADE - pago, 2)
+            if falta > 0:
+                total += falta
+    return round(total, 2)
+
+
 @app.get("/api/caixa")
 def caixa_geral(db: Session = Depends(get_db)):
     """Resumo financeiro geral — acumulado de todos os meses."""
@@ -2894,10 +2933,14 @@ def caixa_geral(db: Session = Depends(get_db)):
             "saldo": e - s,
         })
 
-    # Pendências em aberto (a receber)
-    total_pendencias_abertas = db.query(
+    # Pendências em aberto (a receber): linhas persistidas (evento + mensalidade manual)
+    # + mensalidade calculada dinamicamente (mês atual/anterior, nunca persistida)
+    total_pendencias_db = db.query(
         func.coalesce(func.sum(models.Pendencia.valor), 0)
     ).filter(models.Pendencia.quitado == False).scalar()
+    cfg = _get_config(db)
+    total_pendencias_mensalidade_dinamica = _total_pendencias_mensalidade_dinamica(db, cfg)
+    total_pendencias_abertas = float(total_pendencias_db) + total_pendencias_mensalidade_dinamica
 
     return {
         "total_entradas": total_entradas,

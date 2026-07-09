@@ -195,7 +195,7 @@ Resposta:
 ## Pendências financeiras
 
 - `DATA_INICIO_COBRANCA = date(2026, 5, 1)` — mensalidades cobradas a partir de maio/2026
-- Janela de cobrança: mês atual + mês anterior
+- Janela de cobrança: apenas o mês atual (mensalidades não pagas de meses anteriores não entram mais no cálculo dinâmico — se precisar cobrar retroativo, usar `POST /api/pendencias/manual` com `tipo=mensalidade`)
 - Novo mensalista não entra em jogos Confirmados/Realizados nem em jogos com data < hoje
 - `pagar.html`: checkboxes por pendência → envia `pendencias_ids` + `inclui_mensalidade`
 - Aprovação: remove prefixo `PENDENTE|` do observacao e marca pendências como quitadas

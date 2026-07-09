@@ -2237,17 +2237,10 @@ def info_pagamento_jogador(jogador_id: int, db: Session = Depends(get_db)):
     DATA_INICIO_COBRANCA = date(2026, 5, 1)
 
     if j.tipo == "mensalista":
-        # Verifica mês atual e anterior (mesmo critério do painel admin)
-        for delta in range(1, -1, -1):
-            m = mes - delta
-            y = ano
-            if m <= 0: m += 12; y -= 1
-            # Não cobrar antes de maio/2026
-            if date(y, m, 1) < DATA_INICIO_COBRANCA:
-                continue
-            # Não cobrar meses antes da criação do jogador
-            if j.criado_em and date(y, m, 1) < j.criado_em.date().replace(day=1):
-                continue
+        # Verifica apenas o mês atual
+        m = mes
+        y = ano
+        if date(y, m, 1) >= DATA_INICIO_COBRANCA and not (j.criado_em and date(y, m, 1) < j.criado_em.date().replace(day=1)):
             pags = db.query(models.Pagamento).filter(
                 models.Pagamento.jogador_id == j.id,
                 models.Pagamento.tipo == "mensalidade",
@@ -2462,16 +2455,11 @@ def _pendencias_jogador(jogador_id: int, db: Session, cfg: dict) -> list:
 
     DATA_INICIO_COBRANCA = date(2026, 5, 1)
     if j.tipo == "mensalista":
-        for delta in range(1, -1, -1):
-            m = mes - delta; y = ano
-            if m <= 0: m += 12; y -= 1
-            if date(y, m, 1) < DATA_INICIO_COBRANCA:
-                continue
-            if j.criado_em and date(y, m, 1) < j.criado_em.date().replace(day=1):
-                continue
-            ref = f"{y}-{m:02d}"
-            if ref in db_mens_refs:
-                continue  # coberto por pendência manual
+        m = mes; y = ano
+        ref = f"{y}-{m:02d}"
+        if (date(y, m, 1) >= DATA_INICIO_COBRANCA
+                and not (j.criado_em and date(y, m, 1) < j.criado_em.date().replace(day=1))
+                and ref not in db_mens_refs):
             pags = db.query(models.Pagamento).filter(
                 models.Pagamento.jogador_id == j.id,
                 models.Pagamento.tipo == "mensalidade",
@@ -2548,39 +2536,33 @@ def listar_pendencias(request: Request, db: Session = Depends(get_db)):
             "descricao": p.descricao, "valor": p.valor, "referencia": p.referencia,
         })
 
-    # Mensalidade calculada dinamicamente: mês atual e anterior (mínimo maio/2026)
+    # Mensalidade calculada dinamicamente: apenas o mês atual (mínimo maio/2026)
     DATA_INICIO_COBRANCA = date(2026, 5, 1)
     for j in mensalistas:
-        for delta in range(1, -1, -1):
-            m = mes - delta; y = ano
-            if m <= 0: m += 12; y -= 1
-            # Não cobrar antes de maio/2026
-            if date(y, m, 1) < DATA_INICIO_COBRANCA:
-                continue
-            # Não cobrar meses antes da criação do jogador
-            if j.criado_em and date(y, m, 1) < j.criado_em.date().replace(day=1):
-                continue
-            ref = f"{y}-{m:02d}"
-            if (j.id, ref) in db_mens_keys:
-                continue  # coberto por pendência manual
-            pags = db.query(models.Pagamento).filter(
-                models.Pagamento.jogador_id == j.id,
-                models.Pagamento.tipo == "mensalidade",
-                extract("month", models.Pagamento.data_pagamento) == m,
-                extract("year",  models.Pagamento.data_pagamento) == y,
-            ).all()
-            pago  = sum(p.valor for p in pags if _pagamento_e_mensalidade(p) and not (p.observacao or "").startswith("PENDENTE|"))
-            falta = round(VALOR_MENSALIDADE - pago, 2)
-            if falta > 0:
-                if j.id not in result:
-                    result[j.id] = {"jogador": {"id": j.id, "nome": j.nome, "tipo": j.tipo,
-                                                 "telefone": j.telefone, "email": j.email,
-                                                 "tem_foto": bool(j.foto)}, "itens": []}
-                result[j.id]["itens"].append({
-                    "id": None, "tipo": "mensalidade",
-                    "descricao": f"Mensalidade {MESES_PT[m]} {y}",
-                    "valor": falta, "referencia": ref,
-                })
+        m = mes; y = ano
+        ref = f"{y}-{m:02d}"
+        if (date(y, m, 1) < DATA_INICIO_COBRANCA
+                or (j.criado_em and date(y, m, 1) < j.criado_em.date().replace(day=1))
+                or (j.id, ref) in db_mens_keys):
+            continue
+        pags = db.query(models.Pagamento).filter(
+            models.Pagamento.jogador_id == j.id,
+            models.Pagamento.tipo == "mensalidade",
+            extract("month", models.Pagamento.data_pagamento) == m,
+            extract("year",  models.Pagamento.data_pagamento) == y,
+        ).all()
+        pago  = sum(p.valor for p in pags if _pagamento_e_mensalidade(p) and not (p.observacao or "").startswith("PENDENTE|"))
+        falta = round(VALOR_MENSALIDADE - pago, 2)
+        if falta > 0:
+            if j.id not in result:
+                result[j.id] = {"jogador": {"id": j.id, "nome": j.nome, "tipo": j.tipo,
+                                             "telefone": j.telefone, "email": j.email,
+                                             "tem_foto": bool(j.foto)}, "itens": []}
+            result[j.id]["itens"].append({
+                "id": None, "tipo": "mensalidade",
+                "descricao": f"Mensalidade {MESES_PT[m]} {y}",
+                "valor": falta, "referencia": ref,
+            })
 
     # Pendências de evento abertas
     eventos = db.query(models.Pendencia).filter(
@@ -2834,7 +2816,7 @@ async def parse_comprovante(file: UploadFile = File(...), db: Session = Depends(
 
 
 def _total_pendencias_mensalidade_dinamica(db: Session, cfg: dict) -> float:
-    """Soma das mensalidades em aberto (mês atual + anterior) calculadas dinamicamente,
+    """Soma das mensalidades em aberto (mês atual) calculadas dinamicamente,
     ou seja, que não têm uma linha correspondente na tabela Pendencia."""
     VALOR_MENSALIDADE = cfg["valor_mensalidade"]
     hoje = date.today()
@@ -2853,26 +2835,22 @@ def _total_pendencias_mensalidade_dinamica(db: Session, cfg: dict) -> float:
     DATA_INICIO_COBRANCA = date(2026, 5, 1)
     total = 0.0
     for j in mensalistas:
-        for delta in range(1, -1, -1):
-            m = mes - delta; y = ano
-            if m <= 0: m += 12; y -= 1
-            if date(y, m, 1) < DATA_INICIO_COBRANCA:
-                continue
-            if j.criado_em and date(y, m, 1) < j.criado_em.date().replace(day=1):
-                continue
-            ref = f"{y}-{m:02d}"
-            if (j.id, ref) in db_mens_keys:
-                continue  # coberto por pendência manual (já contada via Pendencia)
-            pags = db.query(models.Pagamento).filter(
-                models.Pagamento.jogador_id == j.id,
-                models.Pagamento.tipo == "mensalidade",
-                extract("month", models.Pagamento.data_pagamento) == m,
-                extract("year",  models.Pagamento.data_pagamento) == y,
-            ).all()
-            pago = sum(p.valor for p in pags if _pagamento_e_mensalidade(p) and not (p.observacao or "").startswith("PENDENTE|"))
-            falta = round(VALOR_MENSALIDADE - pago, 2)
-            if falta > 0:
-                total += falta
+        m = mes; y = ano
+        ref = f"{y}-{m:02d}"
+        if (date(y, m, 1) < DATA_INICIO_COBRANCA
+                or (j.criado_em and date(y, m, 1) < j.criado_em.date().replace(day=1))
+                or (j.id, ref) in db_mens_keys):
+            continue
+        pags = db.query(models.Pagamento).filter(
+            models.Pagamento.jogador_id == j.id,
+            models.Pagamento.tipo == "mensalidade",
+            extract("month", models.Pagamento.data_pagamento) == m,
+            extract("year",  models.Pagamento.data_pagamento) == y,
+        ).all()
+        pago = sum(p.valor for p in pags if _pagamento_e_mensalidade(p) and not (p.observacao or "").startswith("PENDENTE|"))
+        falta = round(VALOR_MENSALIDADE - pago, 2)
+        if falta > 0:
+            total += falta
     return round(total, 2)
 
 

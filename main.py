@@ -2588,15 +2588,73 @@ def listar_pendencias(request: Request, db: Session = Depends(get_db)):
 
 @app.post("/api/pendencias/{pendencia_id}/quitar")
 def quitar_pendencia(pendencia_id: int, request: Request, db: Session = Depends(get_db)):
-    """Admin: marca uma pendência como quitada manualmente."""
+    """Admin: marca uma pendência como quitada manualmente e registra a entrada no caixa."""
     _exigir_admin(request, db)
     p = db.query(models.Pendencia).filter(models.Pendencia.id == pendencia_id).first()
     if not p:
         raise HTTPException(404, "Pendência não encontrada")
     p.quitado = True
     p.quitado_em = datetime.utcnow()
+    db.add(models.Pagamento(
+        jogador_id=p.jogador_id,
+        valor=p.valor,
+        data_pagamento=date.today(),
+        referencia=p.referencia,
+        tipo="mensalidade" if p.tipo == "mensalidade" else "avulso",
+        observacao=f"Quitação manual (pendência #{p.id})|pendencias_ids:{p.id}",
+    ))
     db.commit()
     return {"ok": True}
+
+@app.post("/api/admin/corrigir-quitacoes-manuais")
+def corrigir_quitacoes_manuais(request: Request, db: Session = Depends(get_db)):
+    """TEMPORÁRIO — rodar uma vez e remover depois.
+
+    Cria o Pagamento retroativo para pendências de evento que já foram quitadas
+    manualmente (antes da correção de quitar_pendencia) e por isso nunca entraram
+    no caixa. Pendências de mensalidade quitadas sem Pagamento não são mexidas
+    automaticamente, pois podem ter sido canceladas de propósito via
+    /api/pendencias/mensalidade/cancelar (que não gera Pagamento por design) —
+    essas só entram no relatório para revisão manual.
+    """
+    _exigir_admin(request, db)
+
+    ids_ja_cobertos = set()
+    for pg in db.query(models.Pagamento).all():
+        obs = pg.observacao or ""
+        if "pendencias_ids:" in obs:
+            ids_str = obs.split("pendencias_ids:", 1)[1].split("|")[0]
+            ids_ja_cobertos.update(int(x) for x in ids_str.split(",") if x.strip().isdigit())
+
+    corrigidas = []
+    ignoradas_mensalidade = []
+    for p in db.query(models.Pendencia).filter(models.Pendencia.quitado == True).all():
+        if p.id in ids_ja_cobertos:
+            continue
+        if p.tipo == "mensalidade":
+            ignoradas_mensalidade.append({
+                "id": p.id, "jogador_id": p.jogador_id, "descricao": p.descricao,
+                "valor": p.valor, "referencia": p.referencia,
+                "quitado_em": p.quitado_em.isoformat() if p.quitado_em else None,
+            })
+            continue
+        data_pag = p.quitado_em.date() if p.quitado_em else date.today()
+        db.add(models.Pagamento(
+            jogador_id=p.jogador_id,
+            valor=p.valor,
+            data_pagamento=data_pag,
+            referencia=p.referencia,
+            tipo="avulso",
+            observacao=f"Quitação manual retroativa (pendência #{p.id})|pendencias_ids:{p.id}",
+        ))
+        corrigidas.append({"id": p.id, "jogador_id": p.jogador_id, "valor": p.valor, "descricao": p.descricao})
+
+    db.commit()
+    return {
+        "corrigidas": corrigidas,
+        "total_corrigido": round(sum(c["valor"] for c in corrigidas), 2),
+        "ignoradas_mensalidade_revisar_manualmente": ignoradas_mensalidade,
+    }
 
 @app.delete("/api/pendencias/{pendencia_id}")
 def excluir_pendencia(pendencia_id: int, request: Request, db: Session = Depends(get_db)):

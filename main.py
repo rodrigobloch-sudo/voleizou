@@ -32,6 +32,7 @@ MENUS_SLUGS = [
 ]
 
 TAMANHOS_EQUIPAMENTO = ["PP", "P", "M", "G", "GG", "XG"]
+NUMEROS_RESERVADOS_EQUIPAMENTO = {98, 99}   # uniformes reserva do grupo — nunca disponíveis pra encomenda
 
 # Chaves de configuração com seus defaults
 CONFIG_DEFAULTS = {
@@ -1978,6 +1979,9 @@ def numeros_disponiveis_equipamento(equipamento_id: int, request: Request, db: S
     }
     numeros = []
     for n in range(1, 101):
+        if n in NUMEROS_RESERVADOS_EQUIPAMENTO:
+            numeros.append({"numero": n, "disponivel": False})
+            continue
         dono = _dono_numero_no_lote(db, equipamento_id, n, regulares=regulares, reservas_map=reservas_map)
         numeros.append({"numero": n, "disponivel": dono is None or dono == meu_jogador_id})
     return {"numeros": numeros}
@@ -2019,6 +2023,8 @@ def reservar_equipamento(equipamento_id: int, data: ReservaEquipamentoCreate,
     if numero is not None:
         if numero < 1 or numero > 100:
             raise HTTPException(400, "Número deve estar entre 1 e 100")
+        if numero in NUMEROS_RESERVADOS_EQUIPAMENTO:
+            raise HTTPException(400, f"Número {numero} é reservado para os uniformes reserva do grupo")
         dono = _dono_numero_no_lote(db, equipamento_id, numero)
         if dono is not None and dono != jogador.id:
             raise HTTPException(400, f"Número {numero} já está reservado nesse lote")

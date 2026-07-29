@@ -1627,9 +1627,11 @@
               <option>PP</option><option>P</option><option>M</option><option>G</option><option>GG</option><option>XG</option>
             </select>
           </div>
-          <div class="col-12 d-none" id="encomendar-col-numero">
+          <div class="col-md-3 d-none" id="encomendar-col-numero">
             <label class="form-label">Número da camiseta *</label>
-            <div id="encomendar-numeros" class="d-flex flex-wrap gap-1"></div>
+            <select class="form-select" id="encomendar-numero-select">
+              <option value="" selected disabled>— Selecione —</option>
+            </select>
           </div>
         </div>
       </div>
@@ -1663,6 +1665,20 @@
             <tbody id="tabela-reservas-equipamento"></tbody>
           </table>
         </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal Imagem Ampliada -->
+<div class="modal fade" id="modalImagemAmpliada" tabindex="-1">
+  <div class="modal-dialog modal-lg modal-dialog-centered">
+    <div class="modal-content bg-dark">
+      <div class="modal-header border-0 py-2">
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body text-center pt-0">
+        <img id="imagem-ampliada-src" src="" style="max-width:100%;max-height:80vh" />
       </div>
     </div>
   </div>
@@ -4849,11 +4865,16 @@ async function abrirEncomendar(id) {
   document.getElementById('encomendar-equip-id').value = id;
   document.getElementById('modalEncomendarTitulo').textContent = e.nome;
 
-  document.getElementById('encomendar-imagens').innerHTML = `
-    <img src="/api/equipamentos/${id}/imagem-oficial?t=${Date.now()}" style="max-height:160px" class="img-thumbnail" />
-    ${e.tem_imagem_libero ? `<img src="/api/equipamentos/${id}/imagem-libero?t=${Date.now()}" style="max-height:160px" class="img-thumbnail" />` : ''}
-    ${e.tem_imagem_painel_medidas ? `<img src="/api/equipamentos/${id}/imagem-painel-medidas?t=${Date.now()}" style="max-height:160px" class="img-thumbnail" />` : ''}
-  `;
+  const imgTag = (src, titulo, maxHeight) => `
+    <div class="text-center">
+      <div class="fw-semibold small text-muted mb-1">${titulo}</div>
+      <img src="${src}?t=${Date.now()}" style="max-height:${maxHeight}px;cursor:zoom-in" class="img-thumbnail"
+           onclick="ampliarImagem(this.src)" />
+    </div>`;
+  document.getElementById('encomendar-imagens').innerHTML =
+    imgTag(`/api/equipamentos/${id}/imagem-oficial`, 'Oficial', 260) +
+    (e.tem_imagem_libero ? imgTag(`/api/equipamentos/${id}/imagem-libero`, 'Líbero', 160) : '') +
+    (e.tem_imagem_painel_medidas ? imgTag(`/api/equipamentos/${id}/imagem-painel-medidas`, 'Painel de medidas', 160) : '');
 
   document.getElementById('encomendar-col-nome').classList.toggle('d-none', !e.permite_numero_nome);
   document.getElementById('encomendar-col-numero').classList.toggle('d-none', !e.permite_numero_nome);
@@ -4861,12 +4882,16 @@ async function abrirEncomendar(id) {
   document.getElementById('encomendar-nome').value = '';
   document.getElementById('encomendar-modelo').value = 'oficial';
   document.getElementById('encomendar-tamanho').value = '';
-  delete document.getElementById('encomendar-numeros').dataset.selecionado;
 
   renderMinhasEncomendas(e);
-  if (e.permite_numero_nome) await renderGridNumeros(id);
+  if (e.permite_numero_nome) await renderSelectNumeros(id);
 
   new bootstrap.Modal('#modalEncomendarEquipamento').show();
+}
+
+function ampliarImagem(src) {
+  document.getElementById('imagem-ampliada-src').src = src;
+  new bootstrap.Modal('#modalImagemAmpliada').show();
 }
 
 function renderMinhasEncomendas(e) {
@@ -4884,22 +4909,13 @@ function renderMinhasEncomendas(e) {
       </div>`).join('');
 }
 
-async function renderGridNumeros(equipamentoId) {
-  const grid = document.getElementById('encomendar-numeros');
-  grid.innerHTML = '<span class="text-muted small">Carregando números...</span>';
+async function renderSelectNumeros(equipamentoId) {
+  const sel = document.getElementById('encomendar-numero-select');
+  sel.innerHTML = '<option value="" selected disabled>Carregando...</option>';
   const { numeros } = await api('GET', `/api/equipamentos/${equipamentoId}/numeros-disponiveis`);
-  const semNumeroBtn = `<button type="button" class="btn btn-sm btn-outline-primary" data-numero="" onclick="selecionarNumero(this)">Sem número</button>`;
-  grid.innerHTML = semNumeroBtn + numeros.map(n => `
-    <button type="button" class="btn btn-sm ${n.disponivel ? 'btn-outline-secondary' : 'btn-outline-secondary disabled'}"
-            data-numero="${n.numero}" ${n.disponivel ? `onclick="selecionarNumero(this)"` : 'disabled'}>
-      ${n.numero}${!n.disponivel ? ' -' : ''}
-    </button>`).join('');
-}
-
-function selecionarNumero(btn) {
-  document.querySelectorAll('#encomendar-numeros button').forEach(b => b.classList.remove('btn-primary', 'active'));
-  btn.classList.add('btn-primary', 'active');
-  document.getElementById('encomendar-numeros').dataset.selecionado = btn.dataset.numero;
+  sel.innerHTML = '<option value="" selected disabled>— Selecione —</option>' +
+    '<option value="none">Sem número</option>' +
+    numeros.map(n => `<option value="${n.numero}" ${n.disponivel ? '' : 'disabled'}>${n.numero}${n.disponivel ? '' : ' — indisponível'}</option>`).join('');
 }
 
 async function confirmarEncomenda() {
@@ -4908,16 +4924,16 @@ async function confirmarEncomenda() {
   const nome = document.getElementById('encomendar-nome').value.trim();
   const modelo = e.tem_imagem_libero ? document.getElementById('encomendar-modelo').value : 'oficial';
   const tamanho = document.getElementById('encomendar-tamanho').value;
-  const numeroStr = document.getElementById('encomendar-numeros').dataset.selecionado;
+  const numeroStr = document.getElementById('encomendar-numero-select').value;
 
   if (e.permite_numero_nome && !nome) { toast('Informe o nome da camiseta', 'warning'); return; }
   if (!tamanho) { toast('Selecione o tamanho', 'warning'); return; }
-  if (e.permite_numero_nome && numeroStr === undefined) { toast('Selecione um número ou "Sem número"', 'warning'); return; }
+  if (e.permite_numero_nome && !numeroStr) { toast('Selecione um número ou "Sem número"', 'warning'); return; }
 
   try {
     const r = await api('POST', `/api/equipamentos/${equipId}/reservar`, {
       nome_camiseta: e.permite_numero_nome ? nome : null,
-      numero_camiseta: numeroStr ? parseInt(numeroStr) : null,
+      numero_camiseta: (numeroStr && numeroStr !== 'none') ? parseInt(numeroStr) : null,
       tamanho, modelo,
     });
     toast(`Encomenda registrada! Entrada: ${fmt(r.entrada)} · Restante: ${fmt(r.restante)}`);

@@ -28,8 +28,10 @@ ENCRYPTION_KEY  = os.getenv("ENCRYPTION_KEY",  "")
 MENUS_SLUGS = [
     "dashboard", "jogadores", "jogos", "calendario", "pagamentos",
     "saidas", "entradas", "caixa", "pendencias", "pendentes", "config",
-    "config-valores", "config-categorias",
+    "config-valores", "config-categorias", "equipamentos",
 ]
+
+TAMANHOS_EQUIPAMENTO = ["PP", "P", "M", "G", "GG", "XG"]
 
 # Chaves de configuração com seus defaults
 CONFIG_DEFAULTS = {
@@ -116,6 +118,7 @@ def _migrar():
             ("entradas",  "id",              "INTEGER"),  # força criação via models
             ("jogadores", "apelido",          "VARCHAR"),
             ("jogadores", "posicao",         "VARCHAR"),
+            ("jogadores", "posicao_principal", "VARCHAR"),
             ("jogadores", "numero_camisa",    "INTEGER"),
             ("jogadores", "data_nascimento",  "DATE"),
             ("jogadores", "cpf",             "VARCHAR"),
@@ -130,6 +133,8 @@ def _migrar():
             ("usuarios",  "tipo",                  "VARCHAR"),
             ("usuarios",  "jogador_id",            "INTEGER"),
             ("saidas",    "status",                "VARCHAR"),
+            ("solicitacoes_cadastro", "posicao_principal", "VARCHAR"),
+            ("pendencias", "equipamento_reserva_id", "INTEGER"),
         ]
         for tabela, coluna, tipo in migrações:
             try:
@@ -212,7 +217,9 @@ def _seed_permissoes():
                     db.add(models.Permissao(
                         tipo_usuario=tipo,
                         menu_slug=slug,
-                        permitido=(tipo == "admin"),
+                        # "equipamentos" nasce liberado pra todos — mensalista/avulso
+                        # precisam encomendar sem depender de admin ir liberar antes
+                        permitido=(tipo == "admin" or slug == "equipamentos"),
                     ))
         db.commit()
     except Exception:
@@ -1129,6 +1136,7 @@ class JogadorCreate(BaseModel):
     email: Optional[str] = None
     telefone: Optional[str] = None
     posicao: Optional[str] = None
+    posicao_principal: Optional[str] = None
     numero_camisa: Optional[int] = None
     data_nascimento: Optional[date] = None
     cpf: Optional[str] = None
@@ -1141,6 +1149,7 @@ class JogadorUpdate(BaseModel):
     email: Optional[str] = None
     telefone: Optional[str] = None
     posicao: Optional[str] = None
+    posicao_principal: Optional[str] = None
     numero_camisa: Optional[int] = None
     data_nascimento: Optional[date] = None
     cpf: Optional[str] = None
@@ -1153,6 +1162,7 @@ class CadastroPublico(BaseModel):
     telefone: str
     data_nascimento: date
     posicao: str
+    posicao_principal: Optional[str] = None
     rg: str
     tipo: str   # mensalista | avulso
     cpf: Optional[str] = None
@@ -1247,6 +1257,7 @@ def listar_jogadores(tipo: Optional[str] = None, db: Session = Depends(get_db)):
             "email": j.email,
             "telefone": j.telefone, "ativo": j.ativo,
             "posicao": j.posicao,
+            "posicao_principal": j.posicao_principal,
             "numero_camisa": j.numero_camisa,
             "data_nascimento": j.data_nascimento.isoformat() if j.data_nascimento else None,
             "cpf": _decrypt(j.cpf),
@@ -1311,6 +1322,57 @@ def _checar_camisa(db, numero: int, excluir_id: int = None):
     if dono:
         raise HTTPException(400, f"Camisa #{numero} já está em uso por {dono.nome}")
 
+def _jogadores_regulares_ultimo_semestre(db: Session) -> dict:
+    """Retorna {numero_camisa: jogador_id} dos jogadores ativos com presença > 30%
+    nos jogos com status_efetivo=='Realizado' dos últimos 6 meses (182 dias)."""
+    from datetime import timedelta
+    hoje = date.today()
+    inicio = hoje - timedelta(days=182)
+    jogos_periodo = db.query(models.Jogo).filter(
+        models.Jogo.data >= inicio, models.Jogo.data < hoje,
+    ).all()
+    jogos_realizados = [j for j in jogos_periodo if _status_efetivo(j.data, j.status) == "Realizado"]
+    total = len(jogos_realizados)
+    if total == 0:
+        return {}
+    admin_jog_ids = {row[0] for row in db.query(models.Usuario.jogador_id).filter(
+        models.Usuario.tipo == "admin", models.Usuario.jogador_id.isnot(None)
+    ).all()}
+    jogadores_ativos = db.query(models.Jogador).filter(
+        models.Jogador.ativo == True, models.Jogador.numero_camisa.isnot(None)
+    ).all()
+    regulares = {}
+    for jogador in jogadores_ativos:
+        eh_mensalista = jogador.tipo == "mensalista" or jogador.id in admin_jog_ids
+        count = 0
+        for jogo in jogos_realizados:
+            ausentes_ids = [int(x) for x in (jogo.mensalistas_ausentes or "").split(",") if x.strip()]
+            if eh_mensalista:
+                if jogador.id not in ausentes_ids:
+                    count += 1
+            else:
+                if any(p.jogador_id == jogador.id for p in jogo.participacoes):
+                    count += 1
+        if count / total > 0.30:
+            regulares[jogador.numero_camisa] = jogador.id
+    return regulares
+
+def _dono_numero_no_lote(db: Session, equipamento_id: int, numero: int,
+                         regulares: dict = None, reservas_map: dict = None):
+    """Retorna o jogador_id 'dono' desse número nesse lote: um jogador regular cujo
+    numero_camisa é esse número, senão quem já reservou esse número nesse lote (não
+    importa o modelo). None se ninguém."""
+    if regulares is None:
+        regulares = _jogadores_regulares_ultimo_semestre(db)
+    if numero in regulares:
+        return regulares[numero]
+    if reservas_map is not None:
+        return reservas_map.get(numero)
+    reserva = db.query(models.ReservaEquipamento).filter_by(
+        equipamento_id=equipamento_id, numero_camiseta=numero
+    ).first()
+    return reserva.jogador_id if reserva else None
+
 @app.post("/api/jogadores", status_code=201)
 def criar_jogador(data: JogadorCreate, db: Session = Depends(get_db)):
     if data.tipo not in ("mensalista", "avulso"):
@@ -1330,7 +1392,7 @@ def criar_jogador(data: JogadorCreate, db: Session = Depends(get_db)):
     db.refresh(j)
     return {"id": j.id, "nome": j.nome, "apelido": j.apelido, "tipo": j.tipo, "email": j.email,
             "telefone": j.telefone, "ativo": j.ativo,
-            "posicao": j.posicao, "numero_camisa": j.numero_camisa,
+            "posicao": j.posicao, "posicao_principal": j.posicao_principal, "numero_camisa": j.numero_camisa,
             "data_nascimento": j.data_nascimento.isoformat() if j.data_nascimento else None,
             "cpf": _decrypt(j.cpf), "rg": _decrypt(j.rg)}
 
@@ -1348,7 +1410,7 @@ def atualizar_jogador(jogador_id: int, data: JogadorUpdate, db: Session = Depend
     db.commit()
     return {"id": j.id, "nome": j.nome, "apelido": j.apelido, "tipo": j.tipo, "email": j.email,
             "telefone": j.telefone, "ativo": j.ativo,
-            "posicao": j.posicao, "numero_camisa": j.numero_camisa,
+            "posicao": j.posicao, "posicao_principal": j.posicao_principal, "numero_camisa": j.numero_camisa,
             "data_nascimento": j.data_nascimento.isoformat() if j.data_nascimento else None,
             "cpf": _decrypt(j.cpf), "rg": _decrypt(j.rg)}
 
@@ -1464,6 +1526,7 @@ def cadastro_publico(data: CadastroPublico, db: Session = Depends(get_db)):
     sol = models.SolicitacaoCadastro(
         nome=data.nome, email=data.email, telefone=data.telefone,
         data_nascimento=data.data_nascimento, posicao=data.posicao,
+        posicao_principal=data.posicao_principal,
         rg=_encrypt(data.rg), cpf=_encrypt(data.cpf) if data.cpf else None,
         tipo=data.tipo, numero_camisa=data.numero_camisa, status="pendente",
     )
@@ -1478,7 +1541,7 @@ def listar_cadastros_pendentes(db: Session = Depends(get_db)):
         models.SolicitacaoCadastro.status == "pendente"
     ).order_by(models.SolicitacaoCadastro.criado_em).all()
     return [{"id": s.id, "nome": s.nome, "email": s.email, "telefone": s.telefone,
-             "tipo": s.tipo, "posicao": s.posicao,
+             "tipo": s.tipo, "posicao": s.posicao, "posicao_principal": s.posicao_principal,
              "data_nascimento": str(s.data_nascimento) if s.data_nascimento else None,
              "criado_em": str(s.criado_em)} for s in sols]
 
@@ -1498,7 +1561,7 @@ def aprovar_cadastro(sol_id: int, request: Request, db: Session = Depends(get_db
     j = models.Jogador(
         nome=sol.nome, tipo=sol.tipo, email=sol.email,
         telefone=sol.telefone, data_nascimento=sol.data_nascimento,
-        posicao=sol.posicao, rg=sol.rg, cpf=sol.cpf,
+        posicao=sol.posicao, posicao_principal=sol.posicao_principal, rg=sol.rg, cpf=sol.cpf,
         numero_camisa=sol.numero_camisa, ativo=True,
     )
     db.add(j)
@@ -1701,6 +1764,349 @@ def deletar_local(local_id: int, request: Request, db: Session = Depends(get_db)
     db.delete(l)
     db.commit()
     return {"ok": True}
+
+
+# ── Equipamentos ──────────────────────────────────────────────────────────────
+
+def _processar_imagem_equipamento(conteudo: bytes, max_lado: int = 1600) -> bytes:
+    """Redimensiona (só reduz, nunca aumenta) preservando proporção e recomprime em JPEG."""
+    from PIL import Image as _Img
+    import io as _io
+    img = _Img.open(_io.BytesIO(conteudo)).convert("RGB")
+    img.thumbnail((max_lado, max_lado), _Img.LANCZOS)
+    buf = _io.BytesIO()
+    img.save(buf, format="JPEG", quality=88)
+    return buf.getvalue()
+
+def _equipamento_dict(e: models.Equipamento, minhas_encomendas: list = None) -> dict:
+    hoje = date.today()
+    return {
+        "id": e.id, "nome": e.nome, "ano": e.ano, "mes": e.mes,
+        "valor_total": e.valor_total, "entrada_minima": e.entrada_minima,
+        "data_limite_encomenda": e.data_limite_encomenda.isoformat(),
+        "permite_numero_nome": e.permite_numero_nome,
+        "ativo": e.ativo,
+        "aberto": e.ativo and e.data_limite_encomenda >= hoje,
+        "tem_imagem_libero": bool(e.imagem_libero),
+        "tem_imagem_painel_medidas": bool(e.imagem_painel_medidas),
+        "criado_em": e.criado_em.isoformat() if e.criado_em else None,
+        "minhas_encomendas": minhas_encomendas or [],
+    }
+
+def _reserva_dict(r: models.ReservaEquipamento) -> dict:
+    return {
+        "id": r.id, "equipamento_id": r.equipamento_id,
+        "nome_camiseta": r.nome_camiseta, "numero_camiseta": r.numero_camiseta,
+        "tamanho": r.tamanho, "modelo": r.modelo,
+        "valor_total": r.valor_total, "entrada_minima": r.entrada_minima,
+    }
+
+@app.get("/api/equipamentos")
+def listar_equipamentos(request: Request, db: Session = Depends(get_db)):
+    usuario = _usuario_da_sessao(request, db)
+    jogador_id = usuario.jogador_id if usuario else None
+    equipamentos = db.query(models.Equipamento).order_by(models.Equipamento.data_limite_encomenda.desc()).all()
+    resultado = []
+    for e in equipamentos:
+        minhas = []
+        if jogador_id:
+            reservas = db.query(models.ReservaEquipamento).filter_by(
+                equipamento_id=e.id, jogador_id=jogador_id
+            ).order_by(models.ReservaEquipamento.criado_em).all()
+            minhas = [_reserva_dict(r) for r in reservas]
+        resultado.append(_equipamento_dict(e, minhas))
+    return resultado
+
+@app.post("/api/equipamentos", status_code=201)
+async def criar_equipamento(
+    request: Request,
+    nome: str = Form(...),
+    ano: int = Form(...),
+    mes: int = Form(...),
+    valor_total: float = Form(...),
+    entrada_minima: float = Form(...),
+    data_limite_encomenda: str = Form(...),
+    permite_numero_nome: str = Form("false"),
+    imagem_oficial: UploadFile = File(...),
+    imagem_libero: Optional[UploadFile] = File(None),
+    imagem_painel_medidas: Optional[UploadFile] = File(None),
+    db: Session = Depends(get_db),
+):
+    _exigir_admin(request, db)
+    if mes < 1 or mes > 12:
+        raise HTTPException(400, "Mês inválido")
+    if entrada_minima < 0 or entrada_minima > valor_total:
+        raise HTTPException(400, "Entrada mínima deve estar entre 0 e o valor total")
+    try:
+        prazo = date.fromisoformat(data_limite_encomenda)
+    except ValueError:
+        raise HTTPException(400, "Data limite inválida")
+
+    e = models.Equipamento(
+        nome=nome, ano=ano, mes=mes, valor_total=valor_total, entrada_minima=entrada_minima,
+        data_limite_encomenda=prazo, permite_numero_nome=(permite_numero_nome == "true"),
+    )
+    conteudo_oficial = await imagem_oficial.read()
+    e.imagem_oficial = _processar_imagem_equipamento(conteudo_oficial)
+    e.imagem_oficial_mimetype = "image/jpeg"
+    if imagem_libero is not None and imagem_libero.filename:
+        conteudo_libero = await imagem_libero.read()
+        e.imagem_libero = _processar_imagem_equipamento(conteudo_libero)
+        e.imagem_libero_mimetype = "image/jpeg"
+    if imagem_painel_medidas is not None and imagem_painel_medidas.filename:
+        conteudo_painel = await imagem_painel_medidas.read()
+        e.imagem_painel_medidas = _processar_imagem_equipamento(conteudo_painel, max_lado=2000)
+        e.imagem_painel_medidas_mimetype = "image/jpeg"
+
+    db.add(e)
+    db.commit()
+    db.refresh(e)
+    return _equipamento_dict(e)
+
+@app.put("/api/equipamentos/{equipamento_id}")
+async def editar_equipamento(
+    equipamento_id: int,
+    request: Request,
+    nome: str = Form(...),
+    ano: int = Form(...),
+    mes: int = Form(...),
+    valor_total: float = Form(...),
+    entrada_minima: float = Form(...),
+    data_limite_encomenda: str = Form(...),
+    permite_numero_nome: str = Form("false"),
+    imagem_oficial: Optional[UploadFile] = File(None),
+    imagem_libero: Optional[UploadFile] = File(None),
+    imagem_painel_medidas: Optional[UploadFile] = File(None),
+    db: Session = Depends(get_db),
+):
+    _exigir_admin(request, db)
+    e = db.query(models.Equipamento).filter(models.Equipamento.id == equipamento_id).first()
+    if not e:
+        raise HTTPException(404, "Equipamento não encontrado")
+    if mes < 1 or mes > 12:
+        raise HTTPException(400, "Mês inválido")
+    if entrada_minima < 0 or entrada_minima > valor_total:
+        raise HTTPException(400, "Entrada mínima deve estar entre 0 e o valor total")
+    try:
+        prazo = date.fromisoformat(data_limite_encomenda)
+    except ValueError:
+        raise HTTPException(400, "Data limite inválida")
+
+    e.nome, e.ano, e.mes = nome, ano, mes
+    e.valor_total, e.entrada_minima = valor_total, entrada_minima
+    e.data_limite_encomenda = prazo
+    e.permite_numero_nome = (permite_numero_nome == "true")
+    if imagem_oficial is not None and imagem_oficial.filename:
+        e.imagem_oficial = _processar_imagem_equipamento(await imagem_oficial.read())
+        e.imagem_oficial_mimetype = "image/jpeg"
+    if imagem_libero is not None and imagem_libero.filename:
+        e.imagem_libero = _processar_imagem_equipamento(await imagem_libero.read())
+        e.imagem_libero_mimetype = "image/jpeg"
+    if imagem_painel_medidas is not None and imagem_painel_medidas.filename:
+        e.imagem_painel_medidas = _processar_imagem_equipamento(await imagem_painel_medidas.read(), max_lado=2000)
+        e.imagem_painel_medidas_mimetype = "image/jpeg"
+    db.commit()
+    return _equipamento_dict(e)
+
+@app.get("/api/equipamentos/{equipamento_id}/imagem-oficial")
+def imagem_oficial_equipamento(equipamento_id: int, db: Session = Depends(get_db)):
+    e = db.query(models.Equipamento).filter(models.Equipamento.id == equipamento_id).first()
+    if not e or not e.imagem_oficial:
+        raise HTTPException(404, "Sem imagem")
+    return Response(content=e.imagem_oficial, media_type=e.imagem_oficial_mimetype or "image/jpeg")
+
+@app.get("/api/equipamentos/{equipamento_id}/imagem-libero")
+def imagem_libero_equipamento(equipamento_id: int, db: Session = Depends(get_db)):
+    e = db.query(models.Equipamento).filter(models.Equipamento.id == equipamento_id).first()
+    if not e or not e.imagem_libero:
+        raise HTTPException(404, "Sem imagem")
+    return Response(content=e.imagem_libero, media_type=e.imagem_libero_mimetype or "image/jpeg")
+
+@app.get("/api/equipamentos/{equipamento_id}/imagem-painel-medidas")
+def imagem_painel_medidas_equipamento(equipamento_id: int, db: Session = Depends(get_db)):
+    e = db.query(models.Equipamento).filter(models.Equipamento.id == equipamento_id).first()
+    if not e or not e.imagem_painel_medidas:
+        raise HTTPException(404, "Sem imagem")
+    return Response(content=e.imagem_painel_medidas, media_type=e.imagem_painel_medidas_mimetype or "image/jpeg")
+
+@app.delete("/api/equipamentos/{equipamento_id}")
+def encerrar_equipamento(equipamento_id: int, request: Request, db: Session = Depends(get_db)):
+    _exigir_admin(request, db)
+    e = db.query(models.Equipamento).filter(models.Equipamento.id == equipamento_id).first()
+    if not e:
+        raise HTTPException(404, "Equipamento não encontrado")
+    e.ativo = False
+    db.commit()
+    return {"ok": True}
+
+@app.patch("/api/equipamentos/{equipamento_id}/reabrir")
+def reabrir_equipamento(equipamento_id: int, request: Request, db: Session = Depends(get_db)):
+    _exigir_admin(request, db)
+    e = db.query(models.Equipamento).filter(models.Equipamento.id == equipamento_id).first()
+    if not e:
+        raise HTTPException(404, "Equipamento não encontrado")
+    e.ativo = True
+    db.commit()
+    return {"ok": True}
+
+@app.delete("/api/equipamentos/{equipamento_id}/permanente")
+def deletar_equipamento_permanente(equipamento_id: int, request: Request, db: Session = Depends(get_db)):
+    _exigir_admin(request, db)
+    e = db.query(models.Equipamento).filter(models.Equipamento.id == equipamento_id).first()
+    if not e:
+        raise HTTPException(404, "Equipamento não encontrado")
+    tem_reservas = db.query(models.ReservaEquipamento).filter_by(equipamento_id=equipamento_id).first()
+    if tem_reservas:
+        raise HTTPException(400, "Não é possível excluir: já existem encomendas nesse lote. Use encerrar.")
+    db.delete(e)
+    db.commit()
+    return {"ok": True}
+
+@app.get("/api/equipamentos/{equipamento_id}/numeros-disponiveis")
+def numeros_disponiveis_equipamento(equipamento_id: int, request: Request, db: Session = Depends(get_db)):
+    e = db.query(models.Equipamento).filter(models.Equipamento.id == equipamento_id).first()
+    if not e:
+        raise HTTPException(404, "Equipamento não encontrado")
+    usuario = _usuario_da_sessao(request, db)
+    meu_jogador_id = usuario.jogador_id if usuario else None
+
+    regulares = _jogadores_regulares_ultimo_semestre(db)
+    reservas_map = {
+        r.numero_camiseta: r.jogador_id
+        for r in db.query(models.ReservaEquipamento).filter_by(equipamento_id=equipamento_id)
+        if r.numero_camiseta is not None
+    }
+    numeros = []
+    for n in range(1, 101):
+        dono = _dono_numero_no_lote(db, equipamento_id, n, regulares=regulares, reservas_map=reservas_map)
+        numeros.append({"numero": n, "disponivel": dono is None or dono == meu_jogador_id})
+    return {"numeros": numeros}
+
+class ReservaEquipamentoCreate(BaseModel):
+    nome_camiseta: Optional[str] = None
+    numero_camiseta: Optional[int] = None
+    tamanho: str
+    modelo: str   # "oficial" | "libero"
+
+@app.post("/api/equipamentos/{equipamento_id}/reservar", status_code=201)
+def reservar_equipamento(equipamento_id: int, data: ReservaEquipamentoCreate,
+                         request: Request, db: Session = Depends(get_db)):
+    usuario = _usuario_da_sessao(request, db)
+    if not usuario or not usuario.jogador_id:
+        raise HTTPException(400, "Seu usuário não está vinculado a um jogador")
+    jogador = db.query(models.Jogador).filter(models.Jogador.id == usuario.jogador_id).first()
+
+    e = db.query(models.Equipamento).filter(models.Equipamento.id == equipamento_id).first()
+    if not e:
+        raise HTTPException(404, "Equipamento não encontrado")
+    if not (e.ativo and e.data_limite_encomenda >= date.today()):
+        raise HTTPException(400, "As encomendas desse equipamento estão encerradas")
+
+    if data.modelo not in ("oficial", "libero"):
+        raise HTTPException(400, "Modelo inválido")
+    if data.modelo == "libero" and not e.imagem_libero:
+        raise HTTPException(400, "Esse equipamento não tem opção líbero")
+    if data.tamanho not in TAMANHOS_EQUIPAMENTO:
+        raise HTTPException(400, "Tamanho inválido")
+    nome_camiseta = data.nome_camiseta
+    if e.permite_numero_nome:
+        if not nome_camiseta or not nome_camiseta.strip():
+            raise HTTPException(400, "Nome da camiseta é obrigatório para esse equipamento")
+    else:
+        nome_camiseta = None
+
+    numero = data.numero_camiseta
+    if numero is not None:
+        if numero < 1 or numero > 100:
+            raise HTTPException(400, "Número deve estar entre 1 e 100")
+        dono = _dono_numero_no_lote(db, equipamento_id, numero)
+        if dono is not None and dono != jogador.id:
+            raise HTTPException(400, f"Número {numero} já está reservado nesse lote")
+
+    reserva = models.ReservaEquipamento(
+        equipamento_id=equipamento_id, jogador_id=jogador.id,
+        nome_camiseta=nome_camiseta, numero_camiseta=numero,
+        tamanho=data.tamanho, modelo=data.modelo,
+        valor_total=e.valor_total, entrada_minima=e.entrada_minima,
+    )
+    db.add(reserva)
+    db.flush()
+
+    # Efeito colateral: primeira encomenda de equipamento da vida do jogador
+    # estabelece o numero_camisa dele no cadastro, se ainda não tiver um.
+    if numero is not None and jogador.numero_camisa is None:
+        encomendas_anteriores = db.query(models.ReservaEquipamento).filter(
+            models.ReservaEquipamento.jogador_id == jogador.id,
+            models.ReservaEquipamento.id != reserva.id,
+        ).first()
+        if not encomendas_anteriores:
+            outro_dono = db.query(models.Jogador).filter(
+                models.Jogador.numero_camisa == numero,
+                models.Jogador.ativo == True,
+                models.Jogador.id != jogador.id,
+            ).first()
+            if not outro_dono:
+                jogador.numero_camisa = numero
+
+    restante = round(e.valor_total - e.entrada_minima, 2)
+    db.add(models.Pendencia(
+        jogador_id=jogador.id, jogo_id=None, tipo="evento",
+        descricao=f"Entrada - {e.nome}", valor=round(e.entrada_minima, 2),
+        referencia=f"equipamento:{e.id}", equipamento_reserva_id=reserva.id,
+    ))
+    db.add(models.Pendencia(
+        jogador_id=jogador.id, jogo_id=None, tipo="evento",
+        descricao=f"Restante - {e.nome}", valor=restante,
+        referencia=f"equipamento:{e.id}", equipamento_reserva_id=reserva.id,
+    ))
+    db.commit()
+    db.refresh(reserva)
+    return {"ok": True, "reserva": _reserva_dict(reserva), "entrada": e.entrada_minima, "restante": restante}
+
+@app.delete("/api/equipamentos/reservas/{reserva_id}")
+def cancelar_reserva_equipamento(reserva_id: int, request: Request, db: Session = Depends(get_db)):
+    usuario = _usuario_da_sessao(request, db)
+    if not usuario:
+        raise HTTPException(401, "Não autorizado")
+    reserva = db.query(models.ReservaEquipamento).filter(models.ReservaEquipamento.id == reserva_id).first()
+    if not reserva:
+        raise HTTPException(404, "Encomenda não encontrada")
+    e = db.query(models.Equipamento).filter(models.Equipamento.id == reserva.equipamento_id).first()
+
+    eh_admin = usuario.tipo == "admin"
+    eh_dono = usuario.jogador_id == reserva.jogador_id
+    if not eh_admin and not eh_dono:
+        raise HTTPException(403, "Você não pode cancelar essa encomenda")
+    if eh_dono and not eh_admin:
+        if not (e and e.ativo and e.data_limite_encomenda >= date.today()):
+            raise HTTPException(400, "O prazo de encomenda já encerrou — fale com o admin")
+
+    pendencias = db.query(models.Pendencia).filter_by(equipamento_reserva_id=reserva.id).all()
+    if any(p.quitado for p in pendencias):
+        raise HTTPException(400, "Já existe pagamento registrado nessa encomenda — fale com o admin")
+
+    for p in pendencias:
+        db.delete(p)
+    db.delete(reserva)
+    db.commit()
+    return {"ok": True}
+
+@app.get("/api/equipamentos/{equipamento_id}/reservas")
+def listar_reservas_equipamento(equipamento_id: int, request: Request, db: Session = Depends(get_db)):
+    _exigir_admin(request, db)
+    reservas = db.query(models.ReservaEquipamento).filter_by(
+        equipamento_id=equipamento_id
+    ).order_by(models.ReservaEquipamento.criado_em).all()
+    resultado = []
+    for r in reservas:
+        pendencias = db.query(models.Pendencia).filter_by(equipamento_reserva_id=r.id).all()
+        resultado.append({
+            **_reserva_dict(r),
+            "requisitante": r.jogador.nome if r.jogador else "—",
+            "entrada_paga": any(p.quitado for p in pendencias if "Entrada" in p.descricao),
+            "restante_pago": any(p.quitado for p in pendencias if "Restante" in p.descricao),
+        })
+    return resultado
 
 
 # ── Jogos ─────────────────────────────────────────────────────────────────────

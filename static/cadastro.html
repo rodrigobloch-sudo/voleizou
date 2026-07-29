@@ -92,14 +92,20 @@
         <div class="mb-3">
           <label class="form-label">Posição <span class="text-danger">*</span> <small class="text-muted">(pode marcar mais de uma)</small></label>
           <div class="d-flex flex-wrap gap-3 mt-1">
-            <div class="form-check"><input class="form-check-input" type="checkbox" id="cp-central" value="Central"><label class="form-check-label" for="cp-central">Central</label></div>
-            <div class="form-check"><input class="form-check-input" type="checkbox" id="cp-ponteiro" value="Ponteiro"><label class="form-check-label" for="cp-ponteiro">Ponteiro</label></div>
-            <div class="form-check"><input class="form-check-input" type="checkbox" id="cp-oposto" value="Oposto"><label class="form-check-label" for="cp-oposto">Oposto</label></div>
-            <div class="form-check"><input class="form-check-input" type="checkbox" id="cp-libero" value="Líbero"><label class="form-check-label" for="cp-libero">Líbero</label></div>
-            <div class="form-check"><input class="form-check-input" type="checkbox" id="cp-levantador" value="Levantador"><label class="form-check-label" for="cp-levantador">Levantador</label></div>
-            <div class="form-check"><input class="form-check-input" type="checkbox" id="cp-4x2" value="4x2"><label class="form-check-label" for="cp-4x2">4x2</label></div>
-            <div class="form-check"><input class="form-check-input" type="checkbox" id="cp-nao-sei" value="Não sei informar"><label class="form-check-label" for="cp-nao-sei">Não sei informar</label></div>
+            <div class="form-check"><input class="form-check-input" type="checkbox" id="cp-central" value="Central" onchange="atualizarPosicaoPrincipal()"><label class="form-check-label" for="cp-central">Central</label></div>
+            <div class="form-check"><input class="form-check-input" type="checkbox" id="cp-ponteiro" value="Ponteiro" onchange="atualizarPosicaoPrincipal()"><label class="form-check-label" for="cp-ponteiro">Ponteiro</label></div>
+            <div class="form-check"><input class="form-check-input" type="checkbox" id="cp-oposto" value="Oposto" onchange="atualizarPosicaoPrincipal()"><label class="form-check-label" for="cp-oposto">Oposto</label></div>
+            <div class="form-check"><input class="form-check-input" type="checkbox" id="cp-libero" value="Líbero" onchange="atualizarPosicaoPrincipal()"><label class="form-check-label" for="cp-libero">Líbero</label></div>
+            <div class="form-check"><input class="form-check-input" type="checkbox" id="cp-levantador" value="Levantador" onchange="atualizarPosicaoPrincipal()"><label class="form-check-label" for="cp-levantador">Levantador</label></div>
+            <div class="form-check"><input class="form-check-input" type="checkbox" id="cp-4x2" value="4x2" onchange="atualizarPosicaoPrincipal()"><label class="form-check-label" for="cp-4x2">4x2</label></div>
+            <div class="form-check"><input class="form-check-input" type="checkbox" id="cp-nao-sei" value="Não sei informar" onchange="atualizarPosicaoPrincipal()"><label class="form-check-label" for="cp-nao-sei">Não sei informar</label></div>
           </div>
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Posição principal <span class="text-danger">*</span></label>
+          <select class="form-select" id="cp-posicao-principal">
+            <option value="">— Selecione —</option>
+          </select>
         </div>
 
         <button class="btn btn-primary w-100 mt-2" id="btn-cadastrar" onclick="enviarCadastro()">
@@ -121,6 +127,15 @@
       disableMobile: true,
     });
 
+    function atualizarPosicaoPrincipal(manterSelecionada) {
+      const sel = document.getElementById('cp-posicao-principal');
+      const manter = manterSelecionada !== undefined ? manterSelecionada : sel.value;
+      const marcadas = [...document.querySelectorAll('[id^="cp-"][type=checkbox]:checked')].map(c => c.value);
+      sel.innerHTML = '<option value="">— Selecione —</option>' +
+        marcadas.map(p => `<option value="${p}">${p}</option>`).join('');
+      sel.value = marcadas.includes(manter) ? manter : (marcadas.length === 1 ? marcadas[0] : '');
+    }
+
     async function enviarCadastro() {
       const erro = document.getElementById('alerta-erro');
       erro.classList.add('d-none');
@@ -132,10 +147,11 @@
       const cpf        = document.getElementById('c-cpf').value.trim();
       const telefone   = document.getElementById('c-telefone').value.trim();
       const tipo       = document.getElementById('c-tipo').value;
-      const posicoes   = [...document.querySelectorAll('[id^="cp-"]:checked')].map(c => c.value).join(',');
+      const posicoes   = [...document.querySelectorAll('[id^="cp-"][type=checkbox]:checked')].map(c => c.value).join(',');
+      const posicaoPrincipal = document.getElementById('cp-posicao-principal').value;
 
-      if (!nome || !email || !nascimento || !rg || !telefone || !tipo || !posicoes) {
-        erro.textContent = 'Preencha todos os campos obrigatórios e selecione ao menos uma posição.';
+      if (!nome || !email || !nascimento || !rg || !telefone || !tipo || !posicoes || !posicaoPrincipal) {
+        erro.textContent = 'Preencha todos os campos obrigatórios, selecione ao menos uma posição e a posição principal.';
         erro.classList.remove('d-none'); return;
       }
       if (!email.includes('@')) {
@@ -152,7 +168,7 @@
           method: 'POST',
           headers: {'Content-Type': 'application/json'},
           body: JSON.stringify({nome, email, telefone, data_nascimento: nascimento,
-                                posicao: posicoes, rg, cpf: cpf || null, tipo}),
+                                posicao: posicoes, posicao_principal: posicaoPrincipal, rg, cpf: cpf || null, tipo}),
         });
         const d = await res.json();
         if (!res.ok) {

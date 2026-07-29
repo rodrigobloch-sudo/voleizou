@@ -13,6 +13,7 @@ class Jogador(Base):
     tipo            = Column(String, nullable=False)   # "mensalista" | "avulso"
     telefone        = Column(String, nullable=True)
     posicao         = Column(String, nullable=True)    # pode ser múltipla, ex: "Central,Ponteiro"
+    posicao_principal = Column(String, nullable=True)  # uma das posições em `posicao`
     numero_camisa   = Column(Integer, nullable=True)
     data_nascimento = Column(Date, nullable=True)
     cpf             = Column(String, nullable=True)
@@ -149,10 +150,55 @@ class Pendencia(Base):
     referencia  = Column(String, nullable=True)    # "2026-05" (mensalidade) ou data do jogo
     quitado     = Column(Boolean, default=False, nullable=False)
     quitado_em  = Column(DateTime, nullable=True)
+    equipamento_reserva_id = Column(Integer, ForeignKey("reservas_equipamento.id"), nullable=True)
     criado_em   = Column(DateTime, server_default=func.now())
 
     jogador = relationship("Jogador", back_populates="pendencias_financeiras")
     jogo    = relationship("Jogo",    back_populates="pendencias")
+
+
+class Equipamento(Base):
+    """Lote de material do grupo (uniforme, etc.) disponível para encomenda."""
+    __tablename__ = "equipamentos"
+
+    id              = Column(Integer, primary_key=True, index=True)
+    nome            = Column(String, nullable=False)
+    ano             = Column(Integer, nullable=False)
+    mes             = Column(Integer, nullable=False)   # 1-12
+    valor_total     = Column(Float, nullable=False)
+    entrada_minima  = Column(Float, nullable=False)
+    data_limite_encomenda = Column(Date, nullable=False)
+    permite_numero_nome   = Column(Boolean, default=False, nullable=False)
+    imagem_oficial            = Column(LargeBinary, nullable=True)
+    imagem_oficial_mimetype   = Column(String, nullable=True)
+    imagem_libero              = Column(LargeBinary, nullable=True)
+    imagem_libero_mimetype     = Column(String, nullable=True)
+    imagem_painel_medidas          = Column(LargeBinary, nullable=True)
+    imagem_painel_medidas_mimetype = Column(String, nullable=True)
+    ativo     = Column(Boolean, default=True, nullable=False)
+    criado_em = Column(DateTime, server_default=func.now())
+
+    reservas = relationship("ReservaEquipamento", back_populates="equipamento", cascade="all, delete-orphan")
+
+
+class ReservaEquipamento(Base):
+    """Encomenda de um jogador para um lote de Equipamento — sem unicidade por jogador,
+    pois um mesmo jogador pode encomendar mais de um item no mesmo lote."""
+    __tablename__ = "reservas_equipamento"
+
+    id             = Column(Integer, primary_key=True, index=True)
+    equipamento_id = Column(Integer, ForeignKey("equipamentos.id"), nullable=False)
+    jogador_id     = Column(Integer, ForeignKey("jogadores.id"), nullable=False)  # requisitante
+    nome_camiseta  = Column(String, nullable=True)
+    numero_camiseta = Column(Integer, nullable=True)   # None = "sem número"
+    tamanho        = Column(String, nullable=False)    # PP | P | M | G | GG | XG
+    modelo         = Column(String, nullable=False)     # "oficial" | "libero"
+    valor_total    = Column(Float, nullable=False)      # snapshot do equipamento no momento da encomenda
+    entrada_minima = Column(Float, nullable=False)
+    criado_em      = Column(DateTime, server_default=func.now())
+
+    equipamento = relationship("Equipamento", back_populates="reservas")
+    jogador     = relationship("Jogador")
 
 
 class Categoria(Base):
@@ -195,6 +241,7 @@ class SolicitacaoCadastro(Base):
     telefone        = Column(String, nullable=True)
     data_nascimento = Column(Date, nullable=True)
     posicao         = Column(String, nullable=True)
+    posicao_principal = Column(String, nullable=True)
     rg              = Column(String, nullable=True)   # encrypted
     cpf             = Column(String, nullable=True)   # encrypted
     tipo            = Column(String, nullable=False)  # mensalista | avulso

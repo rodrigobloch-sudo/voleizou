@@ -1323,50 +1323,24 @@ def _checar_camisa(db, numero: int, excluir_id: int = None):
     if dono:
         raise HTTPException(400, f"Camisa #{numero} já está em uso por {dono.nome}")
 
-def _jogadores_regulares_ultimo_semestre(db: Session) -> dict:
-    """Retorna {numero_camisa: jogador_id} dos jogadores ativos com presença > 30%
-    nos jogos com status_efetivo=='Realizado' dos últimos 6 meses (182 dias)."""
-    from datetime import timedelta
-    hoje = date.today()
-    inicio = hoje - timedelta(days=182)
-    jogos_periodo = db.query(models.Jogo).filter(
-        models.Jogo.data >= inicio, models.Jogo.data < hoje,
-    ).all()
-    jogos_realizados = [j for j in jogos_periodo if _status_efetivo(j.data, j.status) == "Realizado"]
-    total = len(jogos_realizados)
-    if total == 0:
-        return {}
-    admin_jog_ids = {row[0] for row in db.query(models.Usuario.jogador_id).filter(
-        models.Usuario.tipo == "admin", models.Usuario.jogador_id.isnot(None)
-    ).all()}
+def _donos_numero_camisa_cadastrados(db: Session) -> dict:
+    """Retorna {numero_camisa: jogador_id} de TODOS os jogadores ativos que têm
+    numero_camisa preenchido no cadastro — independente de presença/frequência.
+    Existe pra nunca duplicar número de camiseta no time."""
     jogadores_ativos = db.query(models.Jogador).filter(
         models.Jogador.ativo == True, models.Jogador.numero_camisa.isnot(None)
     ).all()
-    regulares = {}
-    for jogador in jogadores_ativos:
-        eh_mensalista = jogador.tipo == "mensalista" or jogador.id in admin_jog_ids
-        count = 0
-        for jogo in jogos_realizados:
-            ausentes_ids = [int(x) for x in (jogo.mensalistas_ausentes or "").split(",") if x.strip()]
-            if eh_mensalista:
-                if jogador.id not in ausentes_ids:
-                    count += 1
-            else:
-                if any(p.jogador_id == jogador.id for p in jogo.participacoes):
-                    count += 1
-        if count / total > 0.30:
-            regulares[jogador.numero_camisa] = jogador.id
-    return regulares
+    return {jogador.numero_camisa: jogador.id for jogador in jogadores_ativos}
 
 def _dono_numero_no_lote(db: Session, equipamento_id: int, numero: int,
-                         regulares: dict = None, reservas_map: dict = None):
-    """Retorna o jogador_id 'dono' desse número nesse lote: um jogador regular cujo
-    numero_camisa é esse número, senão quem já reservou esse número nesse lote (não
-    importa o modelo). None se ninguém."""
-    if regulares is None:
-        regulares = _jogadores_regulares_ultimo_semestre(db)
-    if numero in regulares:
-        return regulares[numero]
+                         donos_cadastro: dict = None, reservas_map: dict = None):
+    """Retorna o jogador_id 'dono' desse número nesse lote: um jogador ativo que já
+    tem esse numero_camisa no cadastro, senão quem já reservou esse número nesse
+    lote (não importa o modelo). None se ninguém."""
+    if donos_cadastro is None:
+        donos_cadastro = _donos_numero_camisa_cadastrados(db)
+    if numero in donos_cadastro:
+        return donos_cadastro[numero]
     if reservas_map is not None:
         return reservas_map.get(numero)
     reserva = db.query(models.ReservaEquipamento).filter_by(
@@ -1971,7 +1945,7 @@ def numeros_disponiveis_equipamento(equipamento_id: int, request: Request, db: S
     usuario = _usuario_da_sessao(request, db)
     meu_jogador_id = usuario.jogador_id if usuario else None
 
-    regulares = _jogadores_regulares_ultimo_semestre(db)
+    donos_cadastro = _donos_numero_camisa_cadastrados(db)
     reservas_map = {
         r.numero_camiseta: r.jogador_id
         for r in db.query(models.ReservaEquipamento).filter_by(equipamento_id=equipamento_id)
@@ -1982,7 +1956,7 @@ def numeros_disponiveis_equipamento(equipamento_id: int, request: Request, db: S
         if n in NUMEROS_RESERVADOS_EQUIPAMENTO:
             numeros.append({"numero": n, "disponivel": False})
             continue
-        dono = _dono_numero_no_lote(db, equipamento_id, n, regulares=regulares, reservas_map=reservas_map)
+        dono = _dono_numero_no_lote(db, equipamento_id, n, donos_cadastro=donos_cadastro, reservas_map=reservas_map)
         numeros.append({"numero": n, "disponivel": dono is None or dono == meu_jogador_id})
     return {"numeros": numeros}
 

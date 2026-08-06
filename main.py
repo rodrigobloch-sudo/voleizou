@@ -31,7 +31,7 @@ MENUS_SLUGS = [
     "config-valores", "config-categorias", "equipamentos",
 ]
 
-TAMANHOS_EQUIPAMENTO = ["PP", "P", "M", "G", "GG", "XG"]
+TAMANHOS_EQUIPAMENTO_PADRAO = "PP,P,M,G,GG,XG"  # sugestão inicial no cadastro; cada lote pode ter tamanhos próprios
 NUMEROS_RESERVADOS_EQUIPAMENTO = {98, 99}   # uniformes reserva do grupo — nunca disponíveis pra encomenda
 
 # Chaves de configuração com seus defaults
@@ -136,6 +136,7 @@ def _migrar():
             ("saidas",    "status",                "VARCHAR"),
             ("solicitacoes_cadastro", "posicao_principal", "VARCHAR"),
             ("pendencias", "equipamento_reserva_id", "INTEGER"),
+            ("equipamentos", "tamanhos_disponiveis", "VARCHAR"),
         ]
         for tabela, coluna, tipo in migrações:
             try:
@@ -421,6 +422,23 @@ def _migrar_foto_jogador():
         db.close()
 
 _migrar_foto_jogador()
+
+def _migrar_tamanhos_equipamento():
+    """Preenche tamanhos_disponiveis com a escala padrão em lotes de Equipamento
+    cadastrados antes dessa coluna existir (evita perder/quebrar encomendas em andamento)."""
+    db = SessionLocal()
+    try:
+        for e in db.query(models.Equipamento).filter(
+            (models.Equipamento.tamanhos_disponiveis == None) | (models.Equipamento.tamanhos_disponiveis == "")
+        ).all():
+            e.tamanhos_disponiveis = TAMANHOS_EQUIPAMENTO_PADRAO
+        db.commit()
+    except Exception:
+        db.rollback()
+    finally:
+        db.close()
+
+_migrar_tamanhos_equipamento()
 
 # ── Job de aniversário ────────────────────────────────────────────────────────
 
@@ -1753,6 +1771,16 @@ def _processar_imagem_equipamento(conteudo: bytes, max_lado: int = 1600) -> byte
     img.save(buf, format="JPEG", quality=88)
     return buf.getvalue()
 
+def _normalizar_tamanhos(bruto: str) -> str:
+    """Recebe string livre separada por vírgula (o que o admin digitou, conforme o
+    fornecedor) e devolve CSV limpo, sem duplicatas, preservando a ordem digitada."""
+    vistos = []
+    for parte in (bruto or "").split(","):
+        t = parte.strip()
+        if t and t not in vistos:
+            vistos.append(t)
+    return ",".join(vistos)
+
 def _equipamento_dict(e: models.Equipamento, minhas_encomendas: list = None) -> dict:
     hoje = date.today()
     return {
@@ -1760,6 +1788,7 @@ def _equipamento_dict(e: models.Equipamento, minhas_encomendas: list = None) -> 
         "valor_total": e.valor_total, "entrada_minima": e.entrada_minima,
         "data_limite_encomenda": e.data_limite_encomenda.isoformat(),
         "permite_numero_nome": e.permite_numero_nome,
+        "tamanhos_disponiveis": [t.strip() for t in (e.tamanhos_disponiveis or "").split(",") if t.strip()],
         "ativo": e.ativo,
         "aberto": e.ativo and e.data_limite_encomenda >= hoje,
         "tem_imagem_libero": bool(e.imagem_libero),
@@ -1802,6 +1831,7 @@ async def criar_equipamento(
     entrada_minima: float = Form(...),
     data_limite_encomenda: str = Form(...),
     permite_numero_nome: str = Form("false"),
+    tamanhos_disponiveis: str = Form(...),
     imagem_oficial: UploadFile = File(...),
     imagem_libero: Optional[UploadFile] = File(None),
     imagem_painel_medidas: Optional[UploadFile] = File(None),
@@ -1816,10 +1846,14 @@ async def criar_equipamento(
         prazo = date.fromisoformat(data_limite_encomenda)
     except ValueError:
         raise HTTPException(400, "Data limite inválida")
+    tamanhos = _normalizar_tamanhos(tamanhos_disponiveis)
+    if not tamanhos:
+        raise HTTPException(400, "Informe ao menos um tamanho disponível")
 
     e = models.Equipamento(
         nome=nome, ano=ano, mes=mes, valor_total=valor_total, entrada_minima=entrada_minima,
         data_limite_encomenda=prazo, permite_numero_nome=(permite_numero_nome == "true"),
+        tamanhos_disponiveis=tamanhos,
     )
     conteudo_oficial = await imagem_oficial.read()
     e.imagem_oficial = _processar_imagem_equipamento(conteudo_oficial)
@@ -1849,6 +1883,7 @@ async def editar_equipamento(
     entrada_minima: float = Form(...),
     data_limite_encomenda: str = Form(...),
     permite_numero_nome: str = Form("false"),
+    tamanhos_disponiveis: str = Form(...),
     imagem_oficial: Optional[UploadFile] = File(None),
     imagem_libero: Optional[UploadFile] = File(None),
     imagem_painel_medidas: Optional[UploadFile] = File(None),
@@ -1866,11 +1901,15 @@ async def editar_equipamento(
         prazo = date.fromisoformat(data_limite_encomenda)
     except ValueError:
         raise HTTPException(400, "Data limite inválida")
+    tamanhos = _normalizar_tamanhos(tamanhos_disponiveis)
+    if not tamanhos:
+        raise HTTPException(400, "Informe ao menos um tamanho disponível")
 
     e.nome, e.ano, e.mes = nome, ano, mes
     e.valor_total, e.entrada_minima = valor_total, entrada_minima
     e.data_limite_encomenda = prazo
     e.permite_numero_nome = (permite_numero_nome == "true")
+    e.tamanhos_disponiveis = tamanhos
     if imagem_oficial is not None and imagem_oficial.filename:
         e.imagem_oficial = _processar_imagem_equipamento(await imagem_oficial.read())
         e.imagem_oficial_mimetype = "image/jpeg"
@@ -1984,7 +2023,8 @@ def reservar_equipamento(equipamento_id: int, data: ReservaEquipamentoCreate,
         raise HTTPException(400, "Modelo inválido")
     if data.modelo == "libero" and not e.imagem_libero:
         raise HTTPException(400, "Esse equipamento não tem opção líbero")
-    if data.tamanho not in TAMANHOS_EQUIPAMENTO:
+    tamanhos_lote = [t.strip() for t in (e.tamanhos_disponiveis or "").split(",") if t.strip()]
+    if data.tamanho not in tamanhos_lote:
         raise HTTPException(400, "Tamanho inválido")
     nome_camiseta = data.nome_camiseta
     if e.permite_numero_nome:

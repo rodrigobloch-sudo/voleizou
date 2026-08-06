@@ -1570,6 +1570,11 @@
               <label class="form-check-label" for="equip-permite-numero-nome">Permite escolher nome e número da camiseta</label>
             </div>
           </div>
+          <div class="col-12">
+            <label class="form-label">Tamanhos disponíveis *</label>
+            <input type="text" class="form-control" id="equip-tamanhos" placeholder="Ex: PP, P, M, G, GG, XG" />
+            <small class="text-muted">Separe por vírgula, na ordem em que devem aparecer. Use os tamanhos exatos que o fornecedor oferece para esse lote (não precisa ser a escala padrão).</small>
+          </div>
           <div class="col-md-4">
             <label class="form-label">Imagem oficial <small class="text-muted" id="equip-oficial-hint">(obrigatória)</small></label>
             <input type="file" class="form-control" id="equip-img-oficial" accept="image/*" />
@@ -1624,7 +1629,6 @@
             <label class="form-label">Tamanho *</label>
             <select class="form-select" id="encomendar-tamanho">
               <option value="">—</option>
-              <option>PP</option><option>P</option><option>M</option><option>G</option><option>GG</option><option>XG</option>
             </select>
           </div>
           <div class="col-md-3 d-none" id="encomendar-col-numero">
@@ -4777,6 +4781,7 @@ function abrirModalEquipamento() {
   document.getElementById('equip-entrada-minima').value = '';
   fpSet('equip-prazo', '');
   document.getElementById('equip-permite-numero-nome').checked = false;
+  document.getElementById('equip-tamanhos').value = 'PP, P, M, G, GG, XG';
   document.getElementById('equip-img-oficial').value = '';
   document.getElementById('equip-img-libero').value = '';
   document.getElementById('equip-img-painel').value = '';
@@ -4796,6 +4801,7 @@ function editarEquipamento(id) {
   document.getElementById('equip-entrada-minima').value = e.entrada_minima;
   fpSet('equip-prazo', e.data_limite_encomenda);
   document.getElementById('equip-permite-numero-nome').checked = e.permite_numero_nome;
+  document.getElementById('equip-tamanhos').value = (e.tamanhos_disponiveis || []).join(', ');
   document.getElementById('equip-img-oficial').value = '';
   document.getElementById('equip-img-libero').value = '';
   document.getElementById('equip-img-painel').value = '';
@@ -4809,9 +4815,11 @@ async function salvarEquipamento() {
   const nome = document.getElementById('equip-nome').value.trim();
   const prazo = document.getElementById('equip-prazo').value;
   const imgOficial = document.getElementById('equip-img-oficial').files[0];
+  const tamanhos = document.getElementById('equip-tamanhos').value.trim();
   if (!nome) { toast('Nome é obrigatório', 'warning'); return; }
   if (!prazo) { toast('Informe o prazo para encomendar', 'warning'); return; }
   if (!id && !imgOficial) { toast('Imagem oficial é obrigatória', 'warning'); return; }
+  if (!tamanhos) { toast('Informe ao menos um tamanho disponível', 'warning'); return; }
 
   const form = new FormData();
   form.append('nome', nome);
@@ -4821,6 +4829,7 @@ async function salvarEquipamento() {
   form.append('entrada_minima', document.getElementById('equip-entrada-minima').value);
   form.append('data_limite_encomenda', prazo);
   form.append('permite_numero_nome', document.getElementById('equip-permite-numero-nome').checked ? 'true' : 'false');
+  form.append('tamanhos_disponiveis', tamanhos);
   if (imgOficial) form.append('imagem_oficial', imgOficial);
   const imgLibero = document.getElementById('equip-img-libero').files[0];
   if (imgLibero) form.append('imagem_libero', imgLibero);
@@ -4881,7 +4890,9 @@ async function abrirEncomendar(id) {
   document.getElementById('encomendar-col-modelo').classList.toggle('d-none', !e.tem_imagem_libero);
   document.getElementById('encomendar-nome').value = '';
   document.getElementById('encomendar-modelo').value = 'oficial';
-  document.getElementById('encomendar-tamanho').value = '';
+  const selTamanho = document.getElementById('encomendar-tamanho');
+  selTamanho.innerHTML = '<option value="">—</option>' +
+    (e.tamanhos_disponiveis || []).map(t => `<option>${t}</option>`).join('');
 
   renderMinhasEncomendas(e);
   if (e.permite_numero_nome) await renderSelectNumeros(id);

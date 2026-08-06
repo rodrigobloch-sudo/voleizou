@@ -169,6 +169,7 @@ class Equipamento(Base):
     entrada_minima  = Column(Float, nullable=False)
     data_limite_encomenda = Column(Date, nullable=False)
     permite_numero_nome   = Column(Boolean, default=False, nullable=False)
+    tamanhos_disponiveis  = Column(String, nullable=False, default="PP,P,M,G,GG,XG")  # CSV, definido pelo admin conforme o fornecedor
     imagem_oficial            = Column(LargeBinary, nullable=True)
     imagem_oficial_mimetype   = Column(String, nullable=True)
     imagem_libero              = Column(LargeBinary, nullable=True)

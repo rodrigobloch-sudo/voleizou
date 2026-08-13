@@ -1977,12 +1977,17 @@ def deletar_equipamento_permanente(equipamento_id: int, request: Request, db: Se
     return {"ok": True}
 
 @app.get("/api/equipamentos/{equipamento_id}/numeros-disponiveis")
-def numeros_disponiveis_equipamento(equipamento_id: int, request: Request, db: Session = Depends(get_db)):
+def numeros_disponiveis_equipamento(equipamento_id: int, request: Request, db: Session = Depends(get_db),
+                                    para_jogador_id: Optional[int] = None):
     e = db.query(models.Equipamento).filter(models.Equipamento.id == equipamento_id).first()
     if not e:
         raise HTTPException(404, "Equipamento não encontrado")
     usuario = _usuario_da_sessao(request, db)
     meu_jogador_id = usuario.jogador_id if usuario else None
+    if para_jogador_id is not None and usuario and usuario.tipo == "admin":
+        # Admin editando encomenda de outro jogador: checa disponibilidade do ponto de
+        # vista de quem é o dono da encomenda, não do próprio admin.
+        meu_jogador_id = para_jogador_id
 
     donos_cadastro = _donos_numero_camisa_cadastrados(db)
     reservas_map = {
@@ -2083,6 +2088,58 @@ def reservar_equipamento(equipamento_id: int, data: ReservaEquipamentoCreate,
     db.refresh(reserva)
     return {"ok": True, "reserva": _reserva_dict(reserva), "entrada": e.entrada_minima, "restante": restante}
 
+class ReservaEquipamentoUpdate(BaseModel):
+    nome_camiseta: Optional[str] = None
+    numero_camiseta: Optional[int] = None
+    tamanho: str
+    modelo: str   # "oficial" | "libero"
+
+@app.put("/api/equipamentos/reservas/{reserva_id}")
+def editar_reserva_equipamento(reserva_id: int, data: ReservaEquipamentoUpdate,
+                               request: Request, db: Session = Depends(get_db)):
+    """Admin corrige dados de uma encomenda já feita (nome, número, tamanho, modelo).
+    Não mexe em valor_total/entrada_minima nem nas Pendencias já geradas."""
+    _exigir_admin(request, db)
+    reserva = db.query(models.ReservaEquipamento).filter(models.ReservaEquipamento.id == reserva_id).first()
+    if not reserva:
+        raise HTTPException(404, "Encomenda não encontrada")
+    e = db.query(models.Equipamento).filter(models.Equipamento.id == reserva.equipamento_id).first()
+    if not e:
+        raise HTTPException(404, "Equipamento não encontrado")
+
+    if data.modelo not in ("oficial", "libero"):
+        raise HTTPException(400, "Modelo inválido")
+    if data.modelo == "libero" and not e.imagem_libero:
+        raise HTTPException(400, "Esse equipamento não tem opção líbero")
+    tamanhos_lote = [t.strip() for t in (e.tamanhos_disponiveis or "").split(",") if t.strip()]
+    if data.tamanho not in tamanhos_lote:
+        raise HTTPException(400, "Tamanho inválido")
+
+    nome_camiseta = data.nome_camiseta
+    if e.permite_numero_nome:
+        if not nome_camiseta or not nome_camiseta.strip():
+            raise HTTPException(400, "Nome da camiseta é obrigatório para esse equipamento")
+    else:
+        nome_camiseta = None
+
+    numero = data.numero_camiseta
+    if numero is not None:
+        if numero < 1 or numero > 100:
+            raise HTTPException(400, "Número deve estar entre 1 e 100")
+        if numero in NUMEROS_RESERVADOS_EQUIPAMENTO:
+            raise HTTPException(400, f"Número {numero} é reservado para os uniformes reserva do grupo")
+        dono = _dono_numero_no_lote(db, e.id, numero)
+        if dono is not None and dono != reserva.jogador_id:
+            raise HTTPException(400, f"Número {numero} já está reservado nesse lote")
+
+    reserva.nome_camiseta = nome_camiseta
+    reserva.numero_camiseta = numero
+    reserva.tamanho = data.tamanho
+    reserva.modelo = data.modelo
+    db.commit()
+    db.refresh(reserva)
+    return {"ok": True, "reserva": _reserva_dict(reserva)}
+
 @app.delete("/api/equipamentos/reservas/{reserva_id}")
 def cancelar_reserva_equipamento(reserva_id: int, request: Request, db: Session = Depends(get_db)):
     usuario = _usuario_da_sessao(request, db)
@@ -2122,6 +2179,7 @@ def listar_reservas_equipamento(equipamento_id: int, request: Request, db: Sessi
         pendencias = db.query(models.Pendencia).filter_by(equipamento_reserva_id=r.id).all()
         resultado.append({
             **_reserva_dict(r),
+            "jogador_id": r.jogador_id,
             "requisitante": r.jogador.nome if r.jogador else "—",
             "entrada_paga": any(p.quitado for p in pendencias if "Entrada" in p.descricao),
             "restante_pago": any(p.quitado for p in pendencias if "Restante" in p.descricao),

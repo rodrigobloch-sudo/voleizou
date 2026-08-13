@@ -1674,6 +1674,51 @@
   </div>
 </div>
 
+<!-- Modal Editar Encomenda (admin) -->
+<div class="modal fade" id="modalEditarReservaEquipamento" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Editar encomenda</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="editar-reserva-id" />
+        <input type="hidden" id="editar-reserva-equip-id" />
+        <div class="row g-3">
+          <div class="col-md-6 d-none" id="editar-reserva-col-nome">
+            <label class="form-label">Nome na camiseta *</label>
+            <input type="text" class="form-control" id="editar-reserva-nome" maxlength="20" />
+          </div>
+          <div class="col-md-3 d-none" id="editar-reserva-col-modelo">
+            <label class="form-label">Modelo *</label>
+            <select class="form-select" id="editar-reserva-modelo">
+              <option value="oficial">Oficial</option>
+              <option value="libero">Líbero</option>
+            </select>
+          </div>
+          <div class="col-md-3">
+            <label class="form-label">Tamanho *</label>
+            <select class="form-select" id="editar-reserva-tamanho">
+              <option value="">—</option>
+            </select>
+          </div>
+          <div class="col-md-3 d-none" id="editar-reserva-col-numero">
+            <label class="form-label">Número da camiseta</label>
+            <select class="form-select" id="editar-reserva-numero-select">
+              <option value="none">Sem número</option>
+            </select>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" data-bs-dismiss="modal">Fechar</button>
+        <button class="btn btn-primary" onclick="salvarEdicaoReserva()">Salvar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- Modal Imagem Ampliada -->
 <div class="modal fade" id="modalImagemAmpliada" tabindex="-1">
   <div class="modal-dialog modal-lg modal-dialog-centered">
@@ -4978,9 +5023,65 @@ async function abrirVerEncomendas(equipId) {
       <td>${r.modelo === 'libero' ? 'Líbero' : 'Oficial'}</td>
       <td>${r.tamanho}</td>
       <td>${r.entrada_paga && r.restante_pago ? '<span class="badge bg-success">Completo</span>' : (r.entrada_paga || r.restante_pago ? '<span class="badge bg-warning text-dark">Parcial</span>' : '<span class="badge bg-secondary">Pendente</span>')}</td>
-      <td><button class="btn btn-sm btn-outline-danger" onclick="cancelarEncomenda(${r.id}, null)"><i class="bi bi-trash"></i></button></td>
+      <td>
+        <button class="btn btn-sm btn-outline-primary me-1" title="Editar" onclick="abrirEditarReserva(${r.id})"><i class="bi bi-pencil"></i></button>
+        <button class="btn btn-sm btn-outline-danger" title="Excluir" onclick="cancelarEncomenda(${r.id}, null)"><i class="bi bi-trash"></i></button>
+      </td>
     </tr>`).join('') || '<tr><td colspan="7" class="text-center text-muted py-3">Nenhuma encomenda ainda.</td></tr>';
   new bootstrap.Modal('#modalReservasEquipamento').show();
+}
+
+// ── Editar encomenda (admin) ────────────────────────────────────────────────
+async function abrirEditarReserva(reservaId) {
+  const r = window._reservasEquipamentoAtual.find(x => x.id === reservaId);
+  if (!r) return;
+  const e = window._equipamentosMap[r.equipamento_id];
+  document.getElementById('editar-reserva-id').value = r.id;
+  document.getElementById('editar-reserva-equip-id').value = r.equipamento_id;
+
+  document.getElementById('editar-reserva-col-nome').classList.toggle('d-none', !e.permite_numero_nome);
+  document.getElementById('editar-reserva-col-numero').classList.toggle('d-none', !e.permite_numero_nome);
+  document.getElementById('editar-reserva-col-modelo').classList.toggle('d-none', !e.tem_imagem_libero);
+
+  document.getElementById('editar-reserva-nome').value = r.nome_camiseta || '';
+  document.getElementById('editar-reserva-modelo').value = r.modelo;
+  document.getElementById('editar-reserva-tamanho').innerHTML =
+    (e.tamanhos_disponiveis || []).map(t => `<option ${t === r.tamanho ? 'selected' : ''}>${t}</option>`).join('');
+
+  if (e.permite_numero_nome) {
+    const selNumero = document.getElementById('editar-reserva-numero-select');
+    selNumero.innerHTML = '<option value="none">Sem número</option>';
+    const { numeros } = await api('GET', `/api/equipamentos/${r.equipamento_id}/numeros-disponiveis?para_jogador_id=${r.jogador_id}`);
+    selNumero.innerHTML = '<option value="none">Sem número</option>' +
+      numeros.map(n => `<option value="${n.numero}" ${n.disponivel ? '' : 'disabled'}>${n.numero}${n.disponivel ? '' : ' — indisponível'}</option>`).join('');
+    selNumero.value = r.numero_camiseta != null ? String(r.numero_camiseta) : 'none';
+  }
+
+  new bootstrap.Modal('#modalEditarReservaEquipamento').show();
+}
+
+async function salvarEdicaoReserva() {
+  const id = document.getElementById('editar-reserva-id').value;
+  const equipId = document.getElementById('editar-reserva-equip-id').value;
+  const e = window._equipamentosMap[equipId];
+  const nome = document.getElementById('editar-reserva-nome').value.trim();
+  const modelo = e.tem_imagem_libero ? document.getElementById('editar-reserva-modelo').value : 'oficial';
+  const tamanho = document.getElementById('editar-reserva-tamanho').value;
+  const numeroStr = document.getElementById('editar-reserva-numero-select').value;
+
+  if (e.permite_numero_nome && !nome) { toast('Informe o nome da camiseta', 'warning'); return; }
+  if (!tamanho) { toast('Selecione o tamanho', 'warning'); return; }
+
+  try {
+    await api('PUT', `/api/equipamentos/reservas/${id}`, {
+      nome_camiseta: e.permite_numero_nome ? nome : null,
+      numero_camiseta: (numeroStr && numeroStr !== 'none') ? parseInt(numeroStr) : null,
+      tamanho, modelo,
+    });
+    toast('Encomenda atualizada!');
+    bootstrap.Modal.getInstance('#modalEditarReservaEquipamento').hide();
+    await abrirVerEncomendas(parseInt(equipId));
+  } catch(err) { toast(err.message, 'danger'); }
 }
 
 function baixarCsvReservas() {

@@ -1499,6 +1499,32 @@ def test_email(para: str = ""):
     except Exception as exc:
         return {"ok": False, "erro": str(exc), "config": config}
 
+@app.get("/api/admin/email-teste-todos")
+def email_teste_todos(request: Request, db: Session = Depends(get_db), confirmar: bool = False):
+    """Utilitário pontual: manda um e-mail de teste pra todos os jogadores ativos com
+    e-mail cadastrado. Sem ?confirmar=true só mostra a prévia (quantos/quais), não envia nada."""
+    _exigir_admin(request, db)
+    jogadores = db.query(models.Jogador).filter(
+        models.Jogador.ativo == True,
+        models.Jogador.email != None,
+    ).order_by(models.Jogador.nome).all()
+    destinatarios = [j.email for j in jogadores]
+
+    if not confirmar:
+        return {"ok": True, "preview": True, "total": len(destinatarios), "emails": destinatarios,
+                "mensagem": "Prévia — nada foi enviado. Repita a chamada com ?confirmar=true para enviar de verdade."}
+
+    corpo = "Ola, esse e apenas um e-mail de teste. Nao responda."
+    enviados, falhas = [], []
+    for email in destinatarios:
+        try:
+            _enviar_email(to=email, subject="Teste Voleizou", body=corpo)
+            enviados.append(email)
+        except Exception as exc:
+            falhas.append({"email": email, "erro": str(exc)})
+    return {"ok": True, "preview": False, "total": len(destinatarios),
+            "enviados": len(enviados), "falhas": falhas}
+
 @app.post("/api/cadastro")
 def cadastro_publico(data: CadastroPublico, db: Session = Depends(get_db)):
     """Cria uma solicitação de cadastro pendente — admin precisa aprovar."""

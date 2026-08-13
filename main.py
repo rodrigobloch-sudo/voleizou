@@ -1514,7 +1514,8 @@ def email_teste_todos(request: Request, db: Session = Depends(get_db), confirmar
         return {"ok": True, "preview": True, "total": len(destinatarios), "emails": destinatarios,
                 "mensagem": "Prévia — nada foi enviado. Repita a chamada com ?confirmar=true para enviar de verdade."}
 
-    corpo = "Ola, esse e apenas um e-mail de teste. Nao responda."
+    corpo = ("Ola, esse e apenas um e-mail de teste para que todos recebam o e-mail "
+             "corretamente quando estiverem de aniversario. Nao responda essa mensagem.")
     enviados, falhas = [], []
     for email in destinatarios:
         try:

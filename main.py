@@ -136,6 +136,7 @@ def _migrar():
             ("saidas",    "status",                "VARCHAR"),
             ("solicitacoes_cadastro", "posicao_principal", "VARCHAR"),
             ("pendencias", "equipamento_reserva_id", "INTEGER"),
+            ("pendencias", "cancelado_em", "TIMESTAMP"),
             ("equipamentos", "tamanhos_disponiveis", "VARCHAR"),
         ]
         for tabela, coluna, tipo in migrações:
@@ -2409,6 +2410,7 @@ def criar_pagamento(data: PagamentoCreate, request: Request, db: Session = Depen
             models.Pendencia.jogador_id == data.jogador_id,
             models.Pendencia.tipo == "evento",
             models.Pendencia.quitado == False,
+            models.Pendencia.cancelado_em.is_(None),
         ).all()
         for pend in pendencias_evento:
             pend.quitado = True
@@ -2599,6 +2601,7 @@ def dashboard(mes: Optional[int] = None, ano: Optional[int] = None, db: Session 
         .filter(
             models.Pendencia.tipo == "evento",
             models.Pendencia.quitado == False,
+            models.Pendencia.cancelado_em.is_(None),
             models.Jogador.tipo == "avulso",
             models.Jogador.ativo == True,
         )
@@ -2775,6 +2778,7 @@ def info_pagamento_jogador(jogador_id: int, db: Session = Depends(get_db)):
         models.Pendencia.jogador_id == j.id,
         models.Pendencia.tipo == "evento",
         models.Pendencia.quitado == False,
+        models.Pendencia.cancelado_em.is_(None),
     ).order_by(models.Pendencia.criado_em).all()
     for e in eventos:
         pendencias_abertas.append({
@@ -2987,6 +2991,7 @@ def _pendencias_jogador(jogador_id: int, db: Session, cfg: dict) -> list:
         models.Pendencia.jogador_id == jogador_id,
         models.Pendencia.tipo == "evento",
         models.Pendencia.quitado == False,
+        models.Pendencia.cancelado_em.is_(None),
     ).all()
     for e in eventos:
         itens.append({"id": e.id, "tipo": "evento",
@@ -3079,6 +3084,7 @@ def listar_pendencias(request: Request, db: Session = Depends(get_db)):
     eventos = db.query(models.Pendencia).filter(
         models.Pendencia.tipo == "evento",
         models.Pendencia.quitado == False,
+        models.Pendencia.cancelado_em.is_(None),
     ).order_by(models.Pendencia.criado_em).all()
     for e in eventos:
         j = e.jogador
@@ -3169,12 +3175,17 @@ def corrigir_quitacoes_manuais(request: Request, db: Session = Depends(get_db)):
 
 @app.delete("/api/pendencias/{pendencia_id}")
 def excluir_pendencia(pendencia_id: int, request: Request, db: Session = Depends(get_db)):
-    """Admin: remove uma pendência de evento."""
+    """Admin: cancela uma pendência de evento.
+
+    Soft delete (marca cancelado_em) em vez de apagar a linha — se a linha fosse
+    apagada, um recálculo posterior (ex.: mudança de modalidade do jogador,
+    /api/pendencias/regenerar) veria "nenhuma pendência para esse jogador+jogo"
+    e recriaria a pendência que o admin já tinha excluído."""
     _exigir_admin(request, db)
     p = db.query(models.Pendencia).filter(models.Pendencia.id == pendencia_id).first()
     if not p:
         raise HTTPException(404, "Pendência não encontrada")
-    db.delete(p)
+    p.cancelado_em = datetime.utcnow()
     db.commit()
     return {"ok": True}
 
@@ -3484,7 +3495,10 @@ def caixa_geral(db: Session = Depends(get_db)):
     # + mensalidade calculada dinamicamente (mês atual/anterior, nunca persistida)
     total_pendencias_db = db.query(
         func.coalesce(func.sum(models.Pendencia.valor), 0)
-    ).filter(models.Pendencia.quitado == False).scalar()
+    ).filter(
+        models.Pendencia.quitado == False,
+        models.Pendencia.cancelado_em.is_(None),
+    ).scalar()
     cfg = _get_config(db)
     total_pendencias_mensalidade_dinamica = _total_pendencias_mensalidade_dinamica(db, cfg)
     total_pendencias_abertas = float(total_pendencias_db) + total_pendencias_mensalidade_dinamica

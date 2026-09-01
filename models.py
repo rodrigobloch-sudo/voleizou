@@ -150,6 +150,7 @@ class Pendencia(Base):
     referencia  = Column(String, nullable=True)    # "2026-05" (mensalidade) ou data do jogo
     quitado     = Column(Boolean, default=False, nullable=False)
     quitado_em  = Column(DateTime, nullable=True)
+    cancelado_em = Column(DateTime, nullable=True)  # admin excluiu manualmente — não deve ser recriada em recálculos
     equipamento_reserva_id = Column(Integer, ForeignKey("reservas_equipamento.id"), nullable=True)
     criado_em   = Column(DateTime, server_default=func.now())
 

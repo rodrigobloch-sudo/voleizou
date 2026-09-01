@@ -2218,7 +2218,8 @@ def listar_reservas_equipamento(equipamento_id: int, request: Request, db: Sessi
 # ── Jogos ─────────────────────────────────────────────────────────────────────
 
 def _jogo_dict(jogo) -> dict:
-    avulsos = [{"id": p.jogador.id, "nome": p.jogador.nome, "apelido": p.jogador.apelido, "participacao_id": p.id}
+    avulsos = [{"id": p.jogador.id, "nome": p.jogador.nome, "apelido": p.jogador.apelido,
+                "posicao_principal": p.jogador.posicao_principal, "participacao_id": p.id}
                for p in jogo.participacoes]
     ausentes = [int(x) for x in (jogo.mensalistas_ausentes or '').split(',') if x.strip()]
     return {

@@ -2852,10 +2852,20 @@ function gerarListaJogo(jogoId) {
   const todos = [
     ...presentes.map(m => ({ ...m, _tipo: 'mensalista' })),
     ...avulsos.map(a => ({ ...a, _tipo: 'avulso' })),
-  ].sort((a, b) => {
-    const norm = s => _nomeExibicao(s).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
-    return norm(a).localeCompare(norm(b));
+  ];
+
+  // Agrupa por posição principal, na mesma ordem usada no painel de posições
+  const POSICOES = ['Central','Ponteiro','Oposto','Líbero','Levantador','4x2'];
+  const POSICOES_PLURAL = { 'Central': 'Centrais', 'Ponteiro': 'Ponteiros', 'Oposto': 'Opostos',
+                             'Líbero': 'Líberos', 'Levantador': 'Levantadores', '4x2': '4x2',
+                             'Sem posição': 'Sem posições' };
+  const norm = s => _nomeExibicao(s).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+  const porPosicao = {};
+  todos.forEach(j => {
+    const pos = j.posicao_principal || 'Sem posição';
+    (porPosicao[pos] = porPosicao[pos] || []).push(j);
   });
+  Object.values(porPosicao).forEach(grupo => grupo.sort((a, b) => norm(a).localeCompare(norm(b))));
 
   const valorAvulso = configValores?.valor_avulso ?? 35;
   const TOTAL = 16;
@@ -2870,15 +2880,26 @@ function gerarListaJogo(jogoId) {
   linhas.push('👥 Mensalistas');
   linhas.push('⚠️ Caso um mensalista não possa ir, por favor, tire o nome da lista!');
   linhas.push('');
-  todos.forEach((j, i) => {
-    linhas.push(`${i + 1}. ${_nomeExibicao(j)}`);
-  });
 
-  if (todos.length < TOTAL) {
+  let n = 0;
+  const blocos = [];
+  [...POSICOES, 'Sem posição'].forEach(pos => {
+    const grupo = porPosicao[pos];
+    if (!grupo || grupo.length === 0) return;
+    const linhasGrupo = [`*${POSICOES_PLURAL[pos] || pos}*`];
+    grupo.forEach(j => {
+      n++;
+      linhasGrupo.push(`${n}. ${_nomeExibicao(j)}`);
+    });
+    blocos.push(linhasGrupo.join('\n'));
+  });
+  linhas.push(blocos.join('\n\n'));
+
+  if (n < TOTAL) {
     linhas.push('');
     linhas.push(`👥 Avulsos - R$ ${Number(valorAvulso).toFixed(0)},00`);
-    for (let n = todos.length + 1; n <= TOTAL; n++) {
-      linhas.push(`${n}.`);
+    for (let x = n + 1; x <= TOTAL; x++) {
+      linhas.push(`${x}.`);
     }
   }
 

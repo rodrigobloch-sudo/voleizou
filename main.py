@@ -2965,7 +2965,9 @@ def _pendencias_jogador(jogador_id: int, db: Session, cfg: dict) -> list:
     ).all()
     db_mens_refs = {p.referencia for p in db_mens}
     for p in db_mens:
-        if not p.quitado:
+        # Cancelada (soft delete) continua em db_mens_refs para bloquear o recálculo
+        # dinâmico, mas não aparece mais como pendência.
+        if not p.quitado and p.cancelado_em is None:
             itens.append({"id": p.id, "tipo": "mensalidade",
                           "descricao": p.descricao, "valor": p.valor, "referencia": p.referencia})
 
@@ -3039,7 +3041,9 @@ def listar_pendencias(request: Request, db: Session = Depends(get_db)):
     ).all()
     db_mens_keys = {(p.jogador_id, p.referencia) for p in db_mensalidades}
     for p in db_mensalidades:
-        if p.quitado:
+        # Cancelada (soft delete) continua em db_mens_keys para bloquear o recálculo
+        # dinâmico, mas não aparece mais como pendência.
+        if p.quitado or p.cancelado_em is not None:
             continue
         j = p.jogador
         if not j or not j.ativo:

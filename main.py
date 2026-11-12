@@ -3128,6 +3128,65 @@ def quitar_pendencia(pendencia_id: int, request: Request, db: Session = Depends(
     db.commit()
     return {"ok": True}
 
+class PagamentoDividir(BaseModel):
+    jogador_id: int
+    valor: float
+    tipo: Optional[str] = None          # obrigatório quando não há pendencia_id
+    referencia: Optional[str] = None
+    pendencia_id: Optional[int] = None  # pendência persistida a quitar (opcional)
+
+@app.post("/api/pagamentos/{origem_id}/dividir", status_code=201)
+def dividir_pagamento(origem_id: int, data: PagamentoDividir, request: Request, db: Session = Depends(get_db)):
+    """Admin: quita algo de um jogador com parte de um Pix já lançado em nome de outro
+    (ex.: Matheus paga 240 = ele + Ana Carolina). Reduz o valor do pagamento de origem
+    e cria o pagamento do outro jogador com a mesma data — o caixa não muda."""
+    _exigir_admin(request, db)
+    origem = db.query(models.Pagamento).filter(models.Pagamento.id == origem_id).first()
+    if not origem:
+        raise HTTPException(404, "Pagamento de origem não encontrado")
+    if (origem.observacao or "").startswith("PENDENTE|"):
+        raise HTTPException(400, "Aprove o comprovante de origem antes de dividir")
+    valor = round(data.valor or 0, 2)
+    if valor <= 0 or valor >= round(origem.valor, 2):
+        raise HTTPException(400, f"Valor precisa ser maior que zero e menor que o pagamento de origem ({origem.valor:.2f})")
+    jogador = db.query(models.Jogador).filter(models.Jogador.id == data.jogador_id).first()
+    if not jogador:
+        raise HTTPException(404, "Jogador não encontrado")
+    if data.jogador_id == origem.jogador_id:
+        raise HTTPException(400, "O pagamento de origem já é deste jogador")
+
+    tipo, referencia, pend_ids = data.tipo, data.referencia, ""
+    if data.pendencia_id:
+        pend = db.query(models.Pendencia).filter(
+            models.Pendencia.id == data.pendencia_id,
+            models.Pendencia.jogador_id == data.jogador_id,
+        ).first()
+        if not pend:
+            raise HTTPException(404, "Pendência não encontrada")
+        pend.quitado = True
+        pend.quitado_em = datetime.utcnow()
+        tipo = "mensalidade" if pend.tipo == "mensalidade" else "avulso"
+        referencia = referencia or pend.referencia
+        pend_ids = str(pend.id)
+    if tipo not in ("mensalidade", "avulso"):
+        raise HTTPException(400, "tipo deve ser 'mensalidade' ou 'avulso'")
+
+    nome_origem = origem.jogador.nome if origem.jogador else f"jogador #{origem.jogador_id}"
+    origem.valor = round(origem.valor - valor, 2)
+    origem.observacao = (origem.observacao or "") + f"|dividido: {valor:.2f} p/ {jogador.nome}"
+    novo = models.Pagamento(
+        jogador_id=data.jogador_id,
+        valor=valor,
+        data_pagamento=origem.data_pagamento,
+        referencia=referencia,
+        tipo=tipo,
+        observacao=f"Parte do Pix de {nome_origem} (pag. #{origem.id})|pendencias_ids:{pend_ids}",
+    )
+    db.add(novo)
+    db.commit()
+    db.refresh(novo)
+    return {"id": novo.id, "origem_id": origem.id, "origem_valor": origem.valor}
+
 @app.post("/api/admin/corrigir-quitacoes-manuais")
 def corrigir_quitacoes_manuais(request: Request, db: Session = Depends(get_db)):
     """TEMPORÁRIO — rodar uma vez e remover depois.

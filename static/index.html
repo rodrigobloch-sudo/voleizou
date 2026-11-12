@@ -1347,6 +1347,38 @@
   </div>
 </div>
 
+<!-- Modal Quitar pendência (Pix próprio ou parte do Pix de outro jogador) -->
+<div class="modal fade" id="modalQuitar" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="bi bi-check-circle me-2 text-success"></i>Quitar pendência</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <p class="mb-3" id="qt-resumo"></p>
+        <label class="form-label fw-semibold">De onde veio o dinheiro?</label>
+        <div class="form-check mb-1">
+          <input class="form-check-input" type="radio" name="qt-origem" id="qt-proprio" value="proprio" checked onchange="onQtOrigemChange()">
+          <label class="form-check-label" for="qt-proprio">Pix do próprio jogador <small class="text-muted">(entra no caixa, data de hoje)</small></label>
+        </div>
+        <div class="form-check mb-2">
+          <input class="form-check-input" type="radio" name="qt-origem" id="qt-outro" value="outro" onchange="onQtOrigemChange()">
+          <label class="form-check-label" for="qt-outro">Veio junto no Pix de outro jogador <small class="text-muted">(o caixa não muda)</small></label>
+        </div>
+        <div id="qt-outro-group" style="display:none">
+          <select id="qt-pagamento" class="form-select"></select>
+          <div class="form-text">O valor sai do pagamento escolhido e vira o pagamento deste jogador, na mesma data.</div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button class="btn btn-success" onclick="confirmarQuitar()"><i class="bi bi-check-lg me-1"></i>Quitar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- Modal Seleção de Pendências para WPP -->
 <div class="modal fade" id="modalSelecaoPendencias" tabindex="-1">
   <div class="modal-dialog">
@@ -4526,32 +4558,90 @@ async function excluirPendencia(id) {
   } catch(e) { toast('Erro ao excluir pendência.', 'danger'); }
 }
 
-async function quitarPendencia(id) {
-  if (!confirm('Marcar esta pendência como quitada?')) return;
-  try {
-    await api('POST', `/api/pendencias/${id}/quitar`);
-    toast('Pendência quitada.');
-    carregarPendencias();
-  } catch(e) { toast('Erro ao quitar pendência.', 'danger'); }
+// Quitar pendência: abre o modal; o admin escolhe se o dinheiro é um Pix novo do
+// próprio jogador ou parte de um Pix já lançado em nome de outro (ex.: duplas).
+function _acharItemPendencia(filtro) {
+  for (const entry of Object.values(window._pendenciasEntries || {})) {
+    const it = entry.itens.find(filtro);
+    if (it) return { entry, it };
+  }
+  return null;
 }
 
-async function quitarMensalidade(jogadorId, referencia) {
+async function _abrirModalQuitar(ctx) {
+  window._quitarCtx = ctx;
+  document.getElementById('qt-resumo').innerHTML =
+    `<strong>${ctx.jogadorNome}</strong> — ${ctx.item.descricao} (<strong>${fmt(ctx.item.valor)}</strong>)`;
+  document.getElementById('qt-proprio').checked = true;
+  onQtOrigemChange();
+  const sel = document.getElementById('qt-pagamento');
+  sel.innerHTML = '<option value="">Carregando...</option>';
+  new bootstrap.Modal('#modalQuitar').show();
+  try {
+    const pags = await api('GET', '/api/pagamentos');
+    const limite = new Date(); limite.setDate(limite.getDate() - 90);
+    const lim = limite.toLocaleDateString('en-CA');
+    const ops = pags.filter(p =>
+      p.jogador_id !== ctx.jogadorId &&
+      p.valor > ctx.item.valor + 0.001 &&
+      p.data_pagamento >= lim &&
+      !(p.observacao || '').startsWith('PENDENTE|')
+    ).sort((a, b) => b.data_pagamento.localeCompare(a.data_pagamento) || b.id - a.id);
+    sel.innerHTML = ops.length
+      ? ops.map(p => `<option value="${p.id}">${fmtDate(p.data_pagamento)} · ${p.jogador_nome} · ${fmt(p.valor)} (#${p.id})</option>`).join('')
+      : '<option value="">Nenhum pagamento maior que este valor nos últimos 90 dias</option>';
+  } catch(e) { sel.innerHTML = '<option value="">Erro ao carregar pagamentos</option>'; }
+}
+
+function onQtOrigemChange() {
+  document.getElementById('qt-outro-group').style.display =
+    document.getElementById('qt-outro').checked ? '' : 'none';
+}
+
+async function confirmarQuitar() {
+  const ctx = window._quitarCtx;
+  if (!ctx) return;
+  const outro = document.getElementById('qt-outro').checked;
+  try {
+    if (outro) {
+      const origemId = document.getElementById('qt-pagamento').value;
+      if (!origemId) { toast('Escolha o pagamento de origem.', 'warning'); return; }
+      await api('POST', `/api/pagamentos/${origemId}/dividir`, {
+        jogador_id: ctx.jogadorId,
+        valor: ctx.item.valor,
+        tipo: ctx.item.tipo === 'mensalidade' ? 'mensalidade' : 'avulso',
+        referencia: ctx.item.id ? null : ctx.item.descricao.replace(/^Mensalidade\s+/, ''),
+        pendencia_id: ctx.item.id || null,
+      });
+    } else if (ctx.item.id) {
+      await api('POST', `/api/pendencias/${ctx.item.id}/quitar`);
+    } else {
+      await api('POST', '/api/pagamentos', {
+        jogador_id: ctx.jogadorId,
+        valor: ctx.item.valor,
+        data_pagamento: new Date().toLocaleDateString('en-CA'),
+        referencia: ctx.item.descricao.replace(/^Mensalidade\s+/, ''),
+        tipo: 'mensalidade',
+        observacao: `Quitação manual (mensalidade ${ctx.item.referencia})|pendencias_ids:`,
+      });
+    }
+    bootstrap.Modal.getInstance('#modalQuitar').hide();
+    toast(outro ? 'Quitado com parte do Pix escolhido.' : 'Pendência quitada.');
+    carregarPendencias();
+  } catch(e) { toast(e.message || 'Erro ao quitar.', 'danger'); }
+}
+
+function quitarPendencia(id) {
+  const r = _acharItemPendencia(it => it.id === id);
+  if (!r) return;
+  _abrirModalQuitar({ jogadorId: r.entry.jogador.id, jogadorNome: r.entry.jogador.nome, item: r.it });
+}
+
+function quitarMensalidade(jogadorId, referencia) {
   const entry = window._pendenciasEntries && window._pendenciasEntries[jogadorId];
   const item = entry && entry.itens.find(it => it.tipo === 'mensalidade' && it.referencia === referencia && !it.id);
   if (!item) return;
-  if (!confirm(`Quitar ${item.descricao} de ${entry.jogador.nome} (${fmt(item.valor)})? Será registrado um pagamento com a data de hoje.`)) return;
-  try {
-    await api('POST', '/api/pagamentos', {
-      jogador_id: jogadorId,
-      valor: item.valor,
-      data_pagamento: new Date().toLocaleDateString('en-CA'),
-      referencia: item.descricao.replace(/^Mensalidade\s+/, ''),
-      tipo: 'mensalidade',
-      observacao: `Quitação manual (mensalidade ${referencia})|pendencias_ids:`,
-    });
-    toast('Mensalidade quitada.');
-    carregarPendencias();
-  } catch(e) { toast('Erro ao quitar mensalidade.', 'danger'); }
+  _abrirModalQuitar({ jogadorId, jogadorNome: entry.jogador.nome, item });
 }
 
 async function cancelarMensalidade(jogadorId, referencia) {

@@ -4411,6 +4411,7 @@ async function carregarPendencias() {
             <strong class="text-danger">${fmt(it.valor)}</strong>
             ${isAdmin && it.id ? `<button class="btn btn-link btn-sm p-0 text-success me-1" title="Quitar manualmente" onclick="quitarPendencia(${it.id})"><i class="bi bi-check-circle"></i></button>` : ''}
             ${isAdmin && it.id ? `<button class="btn btn-link btn-sm p-0 text-danger" title="Excluir pendência" onclick="excluirPendencia(${it.id})"><i class="bi bi-x-circle"></i></button>` : ''}
+            ${isAdmin && !it.id && it.tipo === 'mensalidade' ? `<button class="btn btn-link btn-sm p-0 text-success me-1" title="Quitar mensalidade" onclick="quitarMensalidade(${j.id}, '${it.referencia}')"><i class="bi bi-check-circle"></i></button>` : ''}
             ${isAdmin && !it.id && it.tipo === 'mensalidade' ? `<button class="btn btn-link btn-sm p-0 text-danger" title="Cancelar cobrança deste mês" onclick="cancelarMensalidade(${j.id}, '${it.referencia}')"><i class="bi bi-x-circle"></i></button>` : ''}
           </div>
         </div>`).join('');
@@ -4544,6 +4545,25 @@ async function quitarPendencia(id) {
     toast('Pendência quitada.');
     carregarPendencias();
   } catch(e) { toast('Erro ao quitar pendência.', 'danger'); }
+}
+
+async function quitarMensalidade(jogadorId, referencia) {
+  const entry = window._pendenciasEntries && window._pendenciasEntries[jogadorId];
+  const item = entry && entry.itens.find(it => it.tipo === 'mensalidade' && it.referencia === referencia && !it.id);
+  if (!item) return;
+  if (!confirm(`Quitar ${item.descricao} de ${entry.jogador.nome} (${fmt(item.valor)})? Será registrado um pagamento com a data de hoje.`)) return;
+  try {
+    await api('POST', '/api/pagamentos', {
+      jogador_id: jogadorId,
+      valor: item.valor,
+      data_pagamento: new Date().toLocaleDateString('en-CA'),
+      referencia: item.descricao.replace(/^Mensalidade\s+/, ''),
+      tipo: 'mensalidade',
+      observacao: `Quitação manual (mensalidade ${referencia})|pendencias_ids:`,
+    });
+    toast('Mensalidade quitada.');
+    carregarPendencias();
+  } catch(e) { toast('Erro ao quitar mensalidade.', 'danger'); }
 }
 
 async function cancelarMensalidade(jogadorId, referencia) {

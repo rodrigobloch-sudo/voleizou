@@ -551,7 +551,7 @@
     <div class="row g-3 mb-4 d-none" id="caixa-card-previsto">
       <div class="col-4">
         <div class="stat-card" style="background:linear-gradient(135deg,#d97706,#b45309)">
-          <div class="label">Saídas previstas</div>
+          <div class="label">Saídas previstas <span id="caixa-previstas-ate" style="opacity:.8"></span></div>
           <div class="value" id="caixa-saidas-previstas" style="font-size:1.3rem">—</div>
         </div>
       </div>
@@ -3678,6 +3678,7 @@ async function carregarCaixa() {
     if (tipoUsuarioLogado === 'admin') {
       document.getElementById('caixa-card-previsto').classList.remove('d-none');
       document.getElementById('caixa-saidas-previstas').textContent = fmt(d.total_saidas_previstas);
+      document.getElementById('caixa-previstas-ate').textContent = d.previstas_ate ? `até ${d.previstas_ate.slice(8,10)}/${d.previstas_ate.slice(5,7)}` : '';
       document.getElementById('caixa-saldo-previsto').textContent = fmt(d.saldo_previsto);
     }
 

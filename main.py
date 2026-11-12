@@ -3460,7 +3460,18 @@ def caixa_geral(db: Session = Depends(get_db)):
     saidas_confirmadas = [s for s in todas_saidas if (s.status or "Confirmada") == "Confirmada"]
     saidas_previstas   = [s for s in todas_saidas if (s.status or "Confirmada") == "Prevista"]
     total_saidas            = sum(s.valor for s in saidas_confirmadas)
-    total_saidas_previstas  = sum(s.valor for s in saidas_previstas)
+
+    # Saldo com previstos: só as saídas previstas até o próximo dia 10 (janela de
+    # um mês). Até o dia 10, o corte é o dia 10 deste mês; depois, o do mês seguinte.
+    # Previstas atrasadas (antes de hoje, ainda não confirmadas) continuam contando.
+    _hoje = date.today()
+    if _hoje.day <= 10:
+        corte_previstas = date(_hoje.year, _hoje.month, 10)
+    elif _hoje.month == 12:
+        corte_previstas = date(_hoje.year + 1, 1, 10)
+    else:
+        corte_previstas = date(_hoje.year, _hoje.month + 1, 10)
+    total_saidas_previstas  = sum(s.valor for s in saidas_previstas if s.data <= corte_previstas)
 
     # Resumo por mês (últimos 12 meses com movimento)
     from collections import defaultdict
@@ -3512,6 +3523,7 @@ def caixa_geral(db: Session = Depends(get_db)):
         "total_entradas": total_entradas,
         "total_saidas": total_saidas,
         "total_saidas_previstas": total_saidas_previstas,
+        "previstas_ate": corte_previstas.isoformat(),
         "saldo_caixa": total_entradas - total_saidas,
         "saldo_previsto": total_entradas - total_saidas - total_saidas_previstas + total_pendencias_abertas,
         "total_pendencias_abertas": float(total_pendencias_abertas),

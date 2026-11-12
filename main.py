@@ -3568,11 +3568,15 @@ def caixa_geral(db: Session = Depends(get_db)):
 
     # Pendências em aberto (a receber): linhas persistidas (evento + mensalidade manual)
     # + mensalidade calculada dinamicamente (mês atual/anterior, nunca persistida)
+    # Só jogadores ativos — mesma regra da tela de Pendências.
     total_pendencias_db = db.query(
         func.coalesce(func.sum(models.Pendencia.valor), 0)
+    ).join(
+        models.Jogador, models.Pendencia.jogador_id == models.Jogador.id
     ).filter(
         models.Pendencia.quitado == False,
         models.Pendencia.cancelado_em.is_(None),
+        models.Jogador.ativo == True,
     ).scalar()
     cfg = _get_config(db)
     total_pendencias_mensalidade_dinamica = _total_pendencias_mensalidade_dinamica(db, cfg)

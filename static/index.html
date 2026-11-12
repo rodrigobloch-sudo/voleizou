@@ -261,6 +261,35 @@
       </div>
     </div>
 
+    <!-- Previsto do mês atual (admin, só ao ver o mês atual) — mesmos números do Caixa -->
+    <div id="dash-previsto-row" class="row g-3 mb-4 d-none">
+      <div class="col-12"><h6 class="fw-bold mb-0">Previsto para o mês atual <span id="dash-previstas-ate" class="text-muted fw-normal"></span></h6></div>
+      <div class="col-6 col-md-3">
+        <div class="stat-card" style="background:linear-gradient(135deg,#059669,#047857)">
+          <div class="label">Saldo em caixa</div>
+          <div class="value" id="dash-prev-caixa" style="font-size:1.3rem">—</div>
+        </div>
+      </div>
+      <div class="col-6 col-md-3">
+        <div class="stat-card" style="background:linear-gradient(135deg,#d97706,#b45309)">
+          <div class="label">Saídas previstas do mês</div>
+          <div class="value" id="dash-prev-saidas" style="font-size:1.3rem">—</div>
+        </div>
+      </div>
+      <div class="col-6 col-md-3">
+        <div class="stat-card" style="background:linear-gradient(135deg,#7c3aed,#6d28d9)">
+          <div class="label">A receber no mês</div>
+          <div class="value" id="dash-prev-receber" style="font-size:1.3rem">—</div>
+        </div>
+      </div>
+      <div class="col-6 col-md-3">
+        <div class="stat-card" style="background:linear-gradient(135deg,#0f766e,#0d5354)">
+          <div class="label">Saldo previsto do mês</div>
+          <div class="value" id="dash-prev-saldo" style="font-size:1.3rem">—</div>
+        </div>
+      </div>
+    </div>
+
     <!-- Mensalistas / Avulsos (admin only) -->
     <div id="dash-financeiro-row" class="row g-3 mb-3">
       <!-- Mensalistas -->
@@ -1905,6 +1934,25 @@ function aplicarPermissoes(perms) {
 }
 
 // ── Dashboard ────────────────────────────────────────────────────────────────
+// Previsto do mês atual no dashboard: usa /api/caixa (mesma conta do Caixa Geral).
+// Só aparece quando o admin está vendo o mês atual.
+async function carregarPrevistoDashboard() {
+  const row = document.getElementById('dash-previsto-row');
+  const hoje = new Date();
+  const mesAtual = dashMes === hoje.getMonth() + 1 && dashAno === hoje.getFullYear();
+  row.classList.toggle('d-none', !(tipoUsuarioLogado === 'admin' && mesAtual));
+  if (tipoUsuarioLogado !== 'admin' || !mesAtual) return;
+  try {
+    const c = await api('GET', '/api/caixa');
+    document.getElementById('dash-prev-caixa').textContent = fmt(c.saldo_caixa);
+    document.getElementById('dash-prev-saidas').textContent = fmt(c.total_saidas_previstas);
+    document.getElementById('dash-prev-receber').textContent = fmt(c.total_pendencias_abertas);
+    document.getElementById('dash-prev-saldo').textContent = fmt(c.saldo_previsto);
+    document.getElementById('dash-previstas-ate').textContent = c.previstas_ate
+      ? `(até ${c.previstas_ate.slice(8,10)}/${c.previstas_ate.slice(5,7)})` : '';
+  } catch(e) { row.classList.add('d-none'); }
+}
+
 async function carregarDashboard() {
   const isAdmin = tipoUsuarioLogado === 'admin';
 
@@ -1920,6 +1968,7 @@ async function carregarDashboard() {
       document.getElementById('dash-entradas').textContent = fmt(d.total_entradas);
       document.getElementById('dash-saidas').textContent = fmt(d.total_saidas);
       document.getElementById('dash-saldo').textContent = fmt(d.saldo);
+      carregarPrevistoDashboard();
 
       // Mensalistas
       const mDiv = document.getElementById('dash-mensalistas');

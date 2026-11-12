@@ -11,6 +11,11 @@ DATABASE_URL = os.getenv("DATABASE_URL", f"sqlite:///{os.path.join(BASE_DIR, 'vo
 if DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
 
+# Driver explícito: o SQLAlchemy 2.1 trocou o padrão de "postgresql://" para psycopg 3,
+# mas o projeto usa psycopg2-binary.
+if DATABASE_URL.startswith("postgresql://"):
+    DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+psycopg2://", 1)
+
 is_sqlite = DATABASE_URL.startswith("sqlite")
 
 engine = create_engine(

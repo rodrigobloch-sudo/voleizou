@@ -290,6 +290,39 @@
       </div>
     </div>
 
+    <!-- Projeção de mês futuro (admin) — mensalidades × quadra/técnico padrão -->
+    <div id="dash-projecao-row" class="row g-3 mb-4 d-none">
+      <div class="col-12"><h6 class="fw-bold mb-0">Projeção <span id="dash-proj-ciclo" class="text-muted fw-normal"></span></h6></div>
+      <div class="col-6 col-md-3">
+        <div class="stat-card" style="background:linear-gradient(135deg,#059669,#047857)">
+          <div class="label">Saldo inicial previsto</div>
+          <div class="value" id="dash-proj-inicial" style="font-size:1.3rem">—</div>
+          <div class="label" id="dash-proj-inicial-sub" style="opacity:.85;font-size:.75rem"></div>
+        </div>
+      </div>
+      <div class="col-6 col-md-3">
+        <div class="stat-card" style="background:linear-gradient(135deg,#2563eb,#1d4ed8)">
+          <div class="label">Mensalidades previstas</div>
+          <div class="value" id="dash-proj-entradas" style="font-size:1.3rem">—</div>
+          <div class="label" id="dash-proj-entradas-sub" style="opacity:.85;font-size:.75rem"></div>
+        </div>
+      </div>
+      <div class="col-6 col-md-3">
+        <div class="stat-card" style="background:linear-gradient(135deg,#d97706,#b45309)">
+          <div class="label">Quadra + técnico</div>
+          <div class="value" id="dash-proj-saidas" style="font-size:1.3rem">—</div>
+          <div class="label" id="dash-proj-saidas-sub" style="opacity:.85;font-size:.75rem"></div>
+        </div>
+      </div>
+      <div class="col-6 col-md-3">
+        <div class="stat-card" style="background:linear-gradient(135deg,#0f766e,#0d5354)">
+          <div class="label">Saldo previsto do mês</div>
+          <div class="value" id="dash-proj-saldo" style="font-size:1.3rem">—</div>
+          <div class="label" id="dash-proj-saldo-sub" style="opacity:.85;font-size:.75rem"></div>
+        </div>
+      </div>
+    </div>
+
     <!-- Mensalistas / Avulsos (admin only) -->
     <div id="dash-financeiro-row" class="row g-3 mb-3">
       <!-- Mensalistas -->
@@ -697,6 +730,21 @@
                    step="0.01" min="0" placeholder="35,00" />
           </div>
           <div class="form-text">Valor cobrado de jogadores avulsos por cada jogo semanal que participam.</div>
+        </div>
+        <div class="mb-4">
+          <label class="form-label fw-semibold">Quadra (por quarta)</label>
+          <div class="input-group">
+            <span class="input-group-text">R$</span>
+            <input type="number" class="form-control" id="cfg-valor-quadra" step="0.01" min="0" placeholder="240,00" />
+          </div>
+        </div>
+        <div class="mb-4">
+          <label class="form-label fw-semibold">Técnico (por quarta)</label>
+          <div class="input-group">
+            <span class="input-group-text">R$</span>
+            <input type="number" class="form-control" id="cfg-valor-tecnico" step="0.01" min="0" placeholder="200,00" />
+          </div>
+          <div class="form-text">Quadra e técnico padrão são usados na projeção dos próximos meses no Painel.</div>
         </div>
         <button class="btn btn-primary w-100" onclick="salvarConfigValores()">
           <i class="bi bi-check-lg me-1"></i>Salvar valores
@@ -1941,6 +1989,7 @@ async function carregarPrevistoDashboard() {
   const hoje = new Date();
   const mesAtual = dashMes === hoje.getMonth() + 1 && dashAno === hoje.getFullYear();
   row.classList.toggle('d-none', !(tipoUsuarioLogado === 'admin' && mesAtual));
+  carregarProjecaoDashboard();
   if (tipoUsuarioLogado !== 'admin' || !mesAtual) return;
   try {
     const c = await api('GET', '/api/caixa');
@@ -1950,6 +1999,30 @@ async function carregarPrevistoDashboard() {
     document.getElementById('dash-prev-saldo').textContent = fmt(c.saldo_previsto);
     document.getElementById('dash-previstas-ate').textContent = c.previstas_ate
       ? `(até ${c.previstas_ate.slice(8,10)}/${c.previstas_ate.slice(5,7)})` : '';
+  } catch(e) { row.classList.add('d-none'); }
+}
+
+// Projeção de meses futuros: saldo previsto do mês atual encadeado com
+// mensalidades de todos os mensalistas ativos − quadra/técnico padrão por quarta.
+async function carregarProjecaoDashboard() {
+  const row = document.getElementById('dash-projecao-row');
+  const hoje = new Date();
+  const futuro = (dashAno - hoje.getFullYear()) * 12 + (dashMes - (hoje.getMonth() + 1)) > 0;
+  row.classList.toggle('d-none', !(tipoUsuarioLogado === 'admin' && futuro));
+  if (tipoUsuarioLogado !== 'admin' || !futuro) return;
+  const dm = s => `${s.slice(8,10)}/${s.slice(5,7)}`;
+  try {
+    const p = await api('GET', `/api/projecao?mes=${dashMes}&ano=${dashAno}`);
+    document.getElementById('dash-proj-ciclo').textContent = `(${dm(p.ciclo_de)} a ${dm(p.ciclo_ate)})`;
+    document.getElementById('dash-proj-inicial').textContent = fmt(p.saldo_inicial);
+    document.getElementById('dash-proj-inicial-sub').textContent = 'saldo previsto do mês anterior';
+    document.getElementById('dash-proj-entradas').textContent = fmt(p.entradas_previstas);
+    document.getElementById('dash-proj-entradas-sub').textContent = `${p.n_mensalistas} mensalistas × ${fmt(p.valor_mensalidade)}`;
+    document.getElementById('dash-proj-saidas').textContent = fmt(p.saidas_previstas);
+    document.getElementById('dash-proj-saidas-sub').textContent =
+      `${p.quartas.length} quartas (${p.quartas.map(dm).join(', ')}) × ${fmt(p.valor_quadra + p.valor_tecnico)}`;
+    document.getElementById('dash-proj-saldo').textContent = fmt(p.saldo_previsto);
+    document.getElementById('dash-proj-saldo-sub').textContent = '';
   } catch(e) { row.classList.add('d-none'); }
 }
 
@@ -4716,6 +4789,8 @@ async function carregarConfigValores() {
     configValores = cfg;
     document.getElementById('cfg-valor-mensalidade').value = cfg.valor_mensalidade;
     document.getElementById('cfg-valor-avulso').value      = cfg.valor_avulso;
+    document.getElementById('cfg-valor-quadra').value      = cfg.valor_quadra;
+    document.getElementById('cfg-valor-tecnico').value     = cfg.valor_tecnico;
   } catch(e) { toast('Erro ao carregar valores', 'danger'); }
 }
 
@@ -4726,7 +4801,12 @@ async function salvarConfigValores() {
     toast('Informe valores válidos e positivos', 'warning'); return;
   }
   try {
-    const cfg = await api('PUT', '/api/config/valores', { valor_mensalidade: mens, valor_avulso: avul });
+    const quadra = parseFloat(document.getElementById('cfg-valor-quadra').value);
+    const tecnico = parseFloat(document.getElementById('cfg-valor-tecnico').value);
+    const cfg = await api('PUT', '/api/config/valores', {
+      valor_mensalidade: mens, valor_avulso: avul,
+      valor_quadra: quadra >= 0 ? quadra : null, valor_tecnico: tecnico >= 0 ? tecnico : null,
+    });
     configValores = cfg;
     toast('Valores salvos com sucesso!');
   } catch(e) { toast(e.message, 'danger'); }

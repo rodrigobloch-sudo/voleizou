@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import extract, func
 from pydantic import BaseModel
 from typing import Optional, List
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 import models, hmac, hashlib, bcrypt, re, smtplib
 from email.mime.text import MIMEText
 from cryptography.fernet import Fernet, InvalidToken
@@ -38,6 +38,8 @@ NUMEROS_RESERVADOS_EQUIPAMENTO = {98, 99}   # uniformes reserva do grupo — nun
 CONFIG_DEFAULTS = {
     "valor_mensalidade": "120.0",
     "valor_avulso":      "35.0",
+    "valor_quadra":      "240.0",   # padrão por quarta — usado na projeção dos próximos meses
+    "valor_tecnico":     "200.0",   # padrão por quarta — usado na projeção dos próximos meses
 }
 TIPOS_USUARIO = ["admin", "mensalista", "avulso"]
 
@@ -1070,15 +1072,22 @@ def atualizar_permissao(tipo_usuario: str, menu_slug: str, data: PermissaoUpdate
 class ValoresUpdate(BaseModel):
     valor_mensalidade: float
     valor_avulso: float
+    valor_quadra: Optional[float] = None
+    valor_tecnico: Optional[float] = None
 
 @app.get("/api/config/valores")
 def get_valores(db: Session = Depends(get_db)):
     return _get_config(db)
 
 @app.put("/api/config/valores")
-def put_valores(data: ValoresUpdate, db: Session = Depends(get_db)):
-    for chave, valor in [("valor_mensalidade", data.valor_mensalidade),
-                         ("valor_avulso", data.valor_avulso)]:
+def put_valores(data: ValoresUpdate, request: Request, db: Session = Depends(get_db)):
+    _exigir_admin(request, db)
+    pares = [("valor_mensalidade", data.valor_mensalidade), ("valor_avulso", data.valor_avulso)]
+    if data.valor_quadra is not None:
+        pares.append(("valor_quadra", data.valor_quadra))
+    if data.valor_tecnico is not None:
+        pares.append(("valor_tecnico", data.valor_tecnico))
+    for chave, valor in pares:
         row = db.query(models.Configuracao).filter_by(chave=chave).first()
         if row:
             row.valor = str(valor)
@@ -3498,6 +3507,71 @@ def _total_pendencias_mensalidade_dinamica(db: Session, cfg: dict) -> float:
     return round(total, 2)
 
 
+def _proximo_dia_10(d: date) -> date:
+    """Primeiro dia 10 >= d."""
+    if d.day <= 10:
+        return date(d.year, d.month, 10)
+    return date(d.year + 1, 1, 10) if d.month == 12 else date(d.year, d.month + 1, 10)
+
+def _corte_previstas() -> date:
+    """Fim do ciclo do mês atual: o próximo dia 10 (inclusive)."""
+    return _proximo_dia_10(date.today())
+
+
+@app.get("/api/projecao")
+def projecao_mes(mes: int, ano: int, request: Request, db: Session = Depends(get_db)):
+    """Admin: projeção de um mês futuro, encadeada a partir do saldo previsto do mês atual.
+
+    Cada mês seguinte é um ciclo que começa no dia seguinte ao fim do anterior e vai
+    até o próximo dia 10 (ex.: hoje 12/11 → mês atual até 10/12; dezembro = 11/12 a
+    10/01). Por ciclo: entra a mensalidade de todos os mensalistas ativos; sai quadra +
+    técnico padrão (config valor_quadra/valor_tecnico) em cada quarta-feira do ciclo.
+    """
+    _exigir_admin(request, db)
+    hoje = date.today()
+    n_meses = (ano - hoje.year) * 12 + (mes - hoje.month)
+    if n_meses < 1 or n_meses > 24:
+        raise HTTPException(400, "Projeção só para os próximos 24 meses")
+    cfg = _get_config(db)
+    v_mens, v_quadra, v_tec = cfg["valor_mensalidade"], cfg["valor_quadra"], cfg["valor_tecnico"]
+
+    from sqlalchemy import or_ as _or6
+    admin_ids = {row[0] for row in db.query(models.Usuario.jogador_id).filter(
+        models.Usuario.tipo == "admin", models.Usuario.jogador_id.isnot(None)
+    ).all()}
+    n_mensalistas = db.query(models.Jogador).filter(
+        _or6(models.Jogador.tipo == "mensalista", models.Jogador.id.in_(admin_ids)),
+        models.Jogador.ativo == True,
+    ).count()
+
+    saldo = caixa_geral(db)["saldo_previsto"]
+    fim = _corte_previstas()
+    meses = []
+    for i in range(1, n_meses + 1):
+        ini = fim + timedelta(days=1)
+        fim = _proximo_dia_10(ini + timedelta(days=1))  # ini é sempre dia 11
+        quartas = []
+        d = ini + timedelta(days=(2 - ini.weekday()) % 7)  # weekday 2 = quarta
+        while d <= fim:
+            quartas.append(d.isoformat())
+            d += timedelta(days=7)
+        entradas = round(n_mensalistas * v_mens, 2)
+        saidas = round(len(quartas) * (v_quadra + v_tec), 2)
+        m_abs = hoje.month - 1 + i
+        meses.append({
+            "mes": m_abs % 12 + 1, "ano": hoje.year + m_abs // 12,
+            "ciclo_de": ini.isoformat(), "ciclo_ate": fim.isoformat(),
+            "saldo_inicial": round(saldo, 2),
+            "n_mensalistas": n_mensalistas, "valor_mensalidade": v_mens,
+            "entradas_previstas": entradas,
+            "quartas": quartas, "valor_quadra": v_quadra, "valor_tecnico": v_tec,
+            "saidas_previstas": saidas,
+            "saldo_previsto": round(saldo + entradas - saidas, 2),
+        })
+        saldo = saldo + entradas - saidas
+    return meses[-1] | {"meses": meses}
+
+
 @app.get("/api/caixa")
 def caixa_geral(db: Session = Depends(get_db)):
     """Resumo financeiro geral — acumulado de todos os meses."""
@@ -3523,13 +3597,7 @@ def caixa_geral(db: Session = Depends(get_db)):
     # Saldo com previstos: só as saídas previstas até o próximo dia 10 (janela de
     # um mês). Até o dia 10, o corte é o dia 10 deste mês; depois, o do mês seguinte.
     # Previstas atrasadas (antes de hoje, ainda não confirmadas) continuam contando.
-    _hoje = date.today()
-    if _hoje.day <= 10:
-        corte_previstas = date(_hoje.year, _hoje.month, 10)
-    elif _hoje.month == 12:
-        corte_previstas = date(_hoje.year + 1, 1, 10)
-    else:
-        corte_previstas = date(_hoje.year, _hoje.month + 1, 10)
+    corte_previstas = _corte_previstas()
     total_saidas_previstas  = sum(s.valor for s in saidas_previstas if s.data <= corte_previstas)
 
     # Resumo por mês (últimos 12 meses com movimento)
